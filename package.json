@@ -1,0 +1,23 @@
+{
+  "name": "app-de-hassani",
+  "version": "1.0.0",
+  "description": "Servicio mínimo Express con Swagger UI y Redoc",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "redoc-express": "^2.1.0",
+    "swagger-ui-express": "^5.0.0",
+    "pg": "^8.11.5",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5"
+  }
+}
