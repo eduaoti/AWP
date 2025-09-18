@@ -3,7 +3,7 @@
   "info": {
     "title": "AWP MVP API",
     "version": "1.0.0",
-    "description": "API básica para usuarios y auth con OTP"
+    "description": "API bï¿½sica para usuarios y auth con OTP"
   },
   "paths": {
     "/usuarios": {
@@ -28,6 +28,6 @@
     },
     "/auth/login": { "post": { "summary": "Login con email y password", "responses": { "200": { "description": "JWT y OTP" } } } },
     "/auth/login/otp": { "post": { "summary": "Verificar OTP de login", "responses": { "200": { "description": "OTP ok" } } } },
-    "/auth/recuperar-usuario": { "post": { "summary": "Solicitar recuperación", "responses": { "200": { "description": "Instrucciones" } } } }
+    "/auth/recuperar-usuario": { "post": { "summary": "Solicitar recuperaciï¿½n", "responses": { "200": { "description": "Instrucciones" } } } }
   }
 }

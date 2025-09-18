@@ -1,42 +1,86 @@
-import { Request, Response, NextFunction } from "express";
-import { pool } from "../db";
-import bcrypt from "bcrypt";
+import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
+import { UsuarioModel } from "../models/usuario.model";
 
-export const listUsers = async (_req: Request, res: Response, next: NextFunction) => {
+const ROLES_PERMITIDOS = ["admin", "editor", "lector"] as const;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const createUser = async (req: Request, res: Response) => {
+  const { nombre, email, password, rol } = req.body ?? {};
+
+  if (!nombre || !email || !password || !rol) {
+    return res.status(400).json({ error: "Todos los campos son obligatorios" });
+  }
+
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Email con formato inválido" });
+  }
+
+  if (typeof password !== "string" || password.length < 6) {
+    return res.status(400).json({ error: "Password debe tener al menos 6 caracteres" });
+  }
+
+  if (!ROLES_PERMITIDOS.includes(rol)) {
+    return res.status(400).json({ error: "Rol inválido. Use: admin | editor | lector" });
+  }
+
   try {
-    const { rows } = await pool.query("SELECT id,nombre,email,rol,creado_en FROM usuarios ORDER BY id");
-    res.json(rows);
-  } catch (e) { next(e); }
+    const hashed = await bcrypt.hash(password, 10);
+    const usuario = await UsuarioModel.create(nombre, email, hashed, rol);
+    return res.status(201).json(usuario);
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(400).json({ error: "El email ya está registrado" });
+    }
+    console.error("Error creando usuario:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
 };
 
-export const createUser = async (req: Request, res: Response, next: NextFunction) => {
+export const listUsers = async (_: Request, res: Response) => {
   try {
-    const { nombre, email, password, rol } = req.body as { nombre: string; email: string; password: string; rol: "admin"|"editor"|"lector" };
-    if (!nombre || !email || !password || !rol) return res.status(400).json({ error: "nombre, email, password y rol son requeridos" });
-    const hash = await bcrypt.hash(password, 10);
-    const q = `INSERT INTO usuarios(nombre,email,password,rol)
-               VALUES ($1,$2,$3,$4) RETURNING id,nombre,email,rol,creado_en`;
-    const { rows } = await pool.query(q, [nombre, email, hash, rol]);
-    res.status(201).json(rows[0]);
-  } catch (e) { next(e); }
+    const usuarios = await UsuarioModel.findAll();
+    return res.json(usuarios);
+  } catch (err) {
+    console.error("❌ Error listando usuarios:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
 };
 
-export const deleteUser = async (req: Request, res: Response, next: NextFunction) => {
+export const updateUser = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { nombre, email, rol } = req.body ?? {};
+
+  if (!nombre || !email || !rol) {
+    return res.status(400).json({ error: "Todos los campos son obligatorios" });
+  }
+
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Email inválido" });
+  }
+
+  if (!ROLES_PERMITIDOS.includes(rol)) {
+    return res.status(400).json({ error: "Rol inválido" });
+  }
+
   try {
-    await pool.query("DELETE FROM usuarios WHERE id=$1", [req.params.id]);
-    res.json({ ok: true });
-  } catch (e) { next(e); }
+    const usuario = await UsuarioModel.update(Number(id), nombre, email, rol);
+    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+    return res.json(usuario);
+  } catch (err) {
+    console.error("❌ Error actualizando usuario:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
 };
 
-export const updateUser = async (req: Request, res: Response, next: NextFunction) => {
+export const deleteUser = async (req: Request, res: Response) => {
+  const { id } = req.params;
   try {
-    const { nombre, email, rol } = req.body as Partial<{nombre:string; email:string; rol:"admin"|"editor"|"lector"}>;
-    const q = `UPDATE usuarios SET nombre=COALESCE($1,nombre),
-                                   email=COALESCE($2,email),
-                                   rol=COALESCE($3,rol)
-              WHERE id=$4 RETURNING id,nombre,email,rol,creado_en`;
-    const { rows } = await pool.query(q, [nombre, email, rol, req.params.id]);
-    if (!rows[0]) return res.status(404).json({ error: "Usuario no encontrado" });
-    res.json(rows[0]);
-  } catch (e) { next(e); }
+    const usuario = await UsuarioModel.remove(Number(id));
+    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
+    return res.json({ mensaje: "Usuario eliminado", id: usuario.id });
+  } catch (err) {
+    console.error("❌ Error eliminando usuario:", err);
+    return res.status(500).json({ error: "Error interno del servidor" });
+  }
 };
