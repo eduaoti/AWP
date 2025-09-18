@@ -1,0 +1,40 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16
+    container_name: awp_pg
+    environment:
+      POSTGRES_DB: seguridad
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: AppPasswordFuerte
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app_user -d seguridad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: awp_api
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./docs:/app/docs
+      - ./db:/app/db
+    command: npm run dev
+
+volumes:
+  pg_data:
