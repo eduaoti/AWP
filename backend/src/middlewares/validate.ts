@@ -1,32 +1,20 @@
 import { NextFunction, Request, Response } from "express";
-import { ZodError, ZodObject, ZodRawShape } from "zod";
-
-// Valida que el string no sea vacío ni "null"/"undefined"
-const notBadString = (v: unknown) =>
-  typeof v === "string" &&
-  v.trim().length > 0 &&
-  v.trim().toLowerCase() !== "null" &&
-  v.trim().toLowerCase() !== "undefined";
+import { ZodError, ZodType } from "zod";
 
 export const validate =
-  (schema: ZodObject<ZodRawShape>) =>
+  (schema: ZodType<any>) =>
   (req: Request, res: Response, next: NextFunction) => {
     try {
-      schema.parse({
-        body: req.body,
-        query: req.query,
-        headers: req.headers,
-      });
-      return next();
-    } catch (err: unknown) {
+      // El esquema ya define si espera req.body, req.query, etc.
+      schema.parse({ body: req.body });
+      next();
+    } catch (err) {
       if (err instanceof ZodError) {
         return res.status(400).json({
           error: "Validación fallida",
           detalles: err.flatten(),
         });
       }
-      return next(err as Error);
+      next(err);
     }
   };
-
-export const guards = { notBadString };

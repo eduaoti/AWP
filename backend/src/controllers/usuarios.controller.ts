@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { UsuarioModel } from "../models/usuario.model";
 
-// ✅ Serializer para no exponer password
+// Serializer para no exponer password
 const toUsuarioPublic = (row: any) => ({
   id: row.id,
   nombre: row.nombre,
@@ -39,7 +39,6 @@ export const listUsers = async (_: Request, res: Response) => {
   return res.json(usuarios.map(toUsuarioPublic));
 };
 
-// ❗️Sin path variable: toma id desde el body (validado por Zod)
 export const updateUser = async (req: Request, res: Response) => {
   const { id, nombre, email, rol } = req.body;
 
@@ -52,7 +51,6 @@ export const updateUser = async (req: Request, res: Response) => {
   return res.json(toUsuarioPublic(row));
 };
 
-// ❗️Sin path variable: toma id desde el body (validado por Zod)
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.body;
   const row = await UsuarioModel.remove(Number(id));
