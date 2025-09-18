@@ -2,85 +2,60 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { UsuarioModel } from "../models/usuario.model";
 
-const ROLES_PERMITIDOS = ["admin", "editor", "lector"] as const;
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// ✅ Serializer para no exponer password
+const toUsuarioPublic = (row: any) => ({
+  id: row.id,
+  nombre: row.nombre,
+  email: row.email,
+  rol: row.rol,
+  creado_en: row.creado_en,
+});
+
+/**
+ * NOTA IMPORTANTE:
+ * Ya NO validamos aquí (ni regex, ni rol, ni password mínima).
+ * Eso lo hace Zod en los esquemas (crearUsuarioSchema, etc.).
+ * Aquí solo normalizamos, ejecutamos negocio y devolvemos DTO.
+ */
 
 export const createUser = async (req: Request, res: Response) => {
-  const { nombre, email, password, rol } = req.body ?? {};
+  const { nombre, email, password, rol } = req.body;
 
-  if (!nombre || !email || !password || !rol) {
-    return res.status(400).json({ error: "Todos los campos son obligatorios" });
-  }
+  // Normalización mínima (Zod ya transformó email a lower-case si seguiste el esquema mostrado)
+  const nombreNorm = String(nombre).trim();
+  const emailNorm = String(email).trim().toLowerCase();
 
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: "Email con formato inválido" });
-  }
+  // Pre-chequeo amigable (además del UNIQUE de DB)
+  const dup = await UsuarioModel.findByEmail(emailNorm);
+  if (dup) return res.status(400).json({ error: "El email ya está registrado" });
 
-  if (typeof password !== "string" || password.length < 6) {
-    return res.status(400).json({ error: "Password debe tener al menos 6 caracteres" });
-  }
-
-  if (!ROLES_PERMITIDOS.includes(rol)) {
-    return res.status(400).json({ error: "Rol inválido. Use: admin | editor | lector" });
-  }
-
-  try {
-    const hashed = await bcrypt.hash(password, 10);
-    const usuario = await UsuarioModel.create(nombre, email, hashed, rol);
-    return res.status(201).json(usuario);
-  } catch (err: any) {
-    if (err?.code === "23505") {
-      return res.status(400).json({ error: "El email ya está registrado" });
-    }
-    console.error("Error creando usuario:", err);
-    return res.status(500).json({ error: "Error interno del servidor" });
-  }
+  const hashed = await bcrypt.hash(password, 10);
+  const row = await UsuarioModel.create(nombreNorm, emailNorm, hashed, rol);
+  return res.status(201).json(toUsuarioPublic(row));
 };
 
 export const listUsers = async (_: Request, res: Response) => {
-  try {
-    const usuarios = await UsuarioModel.findAll();
-    return res.json(usuarios);
-  } catch (err) {
-    console.error("❌ Error listando usuarios:", err);
-    return res.status(500).json({ error: "Error interno del servidor" });
-  }
+  const usuarios = await UsuarioModel.findAll();
+  return res.json(usuarios.map(toUsuarioPublic));
 };
 
+// ❗️Sin path variable: toma id desde el body (validado por Zod)
 export const updateUser = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { nombre, email, rol } = req.body ?? {};
+  const { id, nombre, email, rol } = req.body;
 
-  if (!nombre || !email || !rol) {
-    return res.status(400).json({ error: "Todos los campos son obligatorios" });
-  }
+  const nombreNorm = String(nombre).trim();
+  const emailNorm = String(email).trim().toLowerCase();
 
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: "Email inválido" });
-  }
+  const row = await UsuarioModel.update(Number(id), nombreNorm, emailNorm, rol);
+  if (!row) return res.status(404).json({ error: "Usuario no encontrado" });
 
-  if (!ROLES_PERMITIDOS.includes(rol)) {
-    return res.status(400).json({ error: "Rol inválido" });
-  }
-
-  try {
-    const usuario = await UsuarioModel.update(Number(id), nombre, email, rol);
-    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
-    return res.json(usuario);
-  } catch (err) {
-    console.error("❌ Error actualizando usuario:", err);
-    return res.status(500).json({ error: "Error interno del servidor" });
-  }
+  return res.json(toUsuarioPublic(row));
 };
 
+// ❗️Sin path variable: toma id desde el body (validado por Zod)
 export const deleteUser = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    const usuario = await UsuarioModel.remove(Number(id));
-    if (!usuario) return res.status(404).json({ error: "Usuario no encontrado" });
-    return res.json({ mensaje: "Usuario eliminado", id: usuario.id });
-  } catch (err) {
-    console.error("❌ Error eliminando usuario:", err);
-    return res.status(500).json({ error: "Error interno del servidor" });
-  }
+  const { id } = req.body;
+  const row = await UsuarioModel.remove(Number(id));
+  if (!row) return res.status(404).json({ error: "Usuario no encontrado" });
+  return res.json({ mensaje: "Usuario eliminado", id: row.id });
 };

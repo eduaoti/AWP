@@ -3,31 +3,194 @@
   "info": {
     "title": "AWP MVP API",
     "version": "1.0.0",
-    "description": "API b�sica para usuarios y auth con OTP"
+    "description": "API básica para usuarios y auth con validación estricta"
   },
   "paths": {
-    "/usuarios": {
-      "get": { "summary": "Listar usuarios", "responses": { "200": { "description": "Lista de usuarios" } } }
+    "/auth/login": {
+      "post": {
+        "summary": "Login con email y password",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email","password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 }
+                }
+              },
+              "example": { "email": "edu@test.com", "password": "Abcdef12" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login exitoso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": { "type": "string" },
+                    "usuario": {
+                      "$ref": "#/components/schemas/UsuarioPublico"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Credenciales inválidas" }
+        }
+      }
     },
     "/usuarios/nuevo": {
       "post": {
-        "summary": "Crear usuario",
+        "summary": "Crear un nuevo usuario",
         "requestBody": {
           "required": true,
-          "content": { "application/json": {
-            "schema": { "type": "object", "properties": {
-              "nombre": {"type": "string"},
-              "email": {"type": "string"},
-              "password": {"type": "string"},
-              "rol": {"type": "string", "enum": ["admin","editor","lector"]}
-            }, "required": ["nombre","email","password","rol"] }
-          } }
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UsuarioCrear" },
+              "example": {
+                "nombre": "Edu Ortiz",
+                "email": "edu@test.com",
+                "password": "Abcdef12",
+                "rol": "editor"
+              }
+            }
+          }
         },
-        "responses": { "201": { "description": "Usuario creado" } }
+        "responses": {
+          "201": {
+            "description": "Usuario creado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UsuarioPublico" }
+              }
+            }
+          },
+          "400": { "description": "Validación fallida o email duplicado" }
+        }
       }
     },
-    "/auth/login": { "post": { "summary": "Login con email y password", "responses": { "200": { "description": "JWT y OTP" } } } },
-    "/auth/login/otp": { "post": { "summary": "Verificar OTP de login", "responses": { "200": { "description": "OTP ok" } } } },
-    "/auth/recuperar-usuario": { "post": { "summary": "Solicitar recuperaci�n", "responses": { "200": { "description": "Instrucciones" } } } }
+    "/usuarios/actualizar": {
+      "put": {
+        "summary": "Actualizar un usuario existente",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UsuarioActualizar" },
+              "example": {
+                "id": 1,
+                "nombre": "Edu Actualizado",
+                "email": "edu@test.com",
+                "rol": "admin"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario actualizado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UsuarioPublico" }
+              }
+            }
+          },
+          "404": { "description": "Usuario no encontrado" }
+        }
+      }
+    },
+    "/usuarios/eliminar": {
+      "post": {
+        "summary": "Eliminar un usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "properties": { "id": { "type": "integer", "example": 1 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario eliminado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mensaje": { "type": "string" },
+                    "id": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Usuario no encontrado" }
+        }
+      }
+    },
+    "/usuarios": {
+      "get": {
+        "summary": "Listar usuarios",
+        "responses": {
+          "200": {
+            "description": "Lista de usuarios",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/UsuarioPublico" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UsuarioCrear": {
+        "type": "object",
+        "required": ["nombre","email","password","rol"],
+        "properties": {
+          "nombre": { "type": "string", "minLength": 2, "maxLength": 80 },
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 8 },
+          "rol": { "type": "string", "enum": ["admin","editor","lector"] }
+        }
+      },
+      "UsuarioActualizar": {
+        "type": "object",
+        "required": ["id","nombre","email","rol"],
+        "properties": {
+          "id": { "type": "integer" },
+          "nombre": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "rol": { "type": "string", "enum": ["admin","editor","lector"] }
+        }
+      },
+      "UsuarioPublico": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "nombre": { "type": "string" },
+          "email": { "type": "string" },
+          "rol": { "type": "string" },
+          "creado_en": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
   }
 }

@@ -32,6 +32,13 @@ export const UsuarioModel = {
     return rows[0];
   },
 
+  // ✅ NUEVO: útil para pre-chequear duplicados y para login
+  async findByEmail(email: string) {
+    const sql = `SELECT id, nombre, email, rol, password, creado_en FROM usuarios WHERE email=$1`;
+    const { rows } = await pool.query(sql, [email]);
+    return rows[0];
+  },
+
   async update(id: number, nombre: string, email: string, rol: string) {
     const sql = `
       UPDATE usuarios
