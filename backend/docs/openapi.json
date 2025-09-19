@@ -5,9 +5,15 @@
     "version": "1.0.0",
     "description": "API básica para usuarios y auth con validación estricta y respuesta estándar {codigo, mensaje, data}"
   },
+  "tags": [
+    { "name": "Auth", "description": "Login y validación OTP" },
+    { "name": "Recovery", "description": "Recuperación de contraseña" },
+    { "name": "Usuarios", "description": "Gestión de usuarios" }
+  ],
   "paths": {
     "/auth/login": {
       "post": {
+        "tags": ["Auth"],
         "summary": "Login con email y password (paso 1)",
         "requestBody": {
           "required": true,
@@ -33,9 +39,9 @@
         }
       }
     },
-
     "/auth/login/otp": {
       "post": {
+        "tags": ["Auth"],
         "summary": "Verificar OTP/backup y emitir token final (paso 2)",
         "requestBody": {
           "required": true,
@@ -75,9 +81,9 @@
         }
       }
     },
-
     "/auth/otp/setup/start": {
       "post": {
+        "tags": ["Auth"],
         "summary": "Iniciar configuración de OTP (Google Authenticator)",
         "security": [{ "bearerAuth": [] }],
         "responses": {
@@ -87,9 +93,9 @@
         }
       }
     },
-
     "/auth/otp/setup/confirm": {
       "post": {
+        "tags": ["Auth"],
         "summary": "Confirmar OTP (guardar secreto + generar backup codes)",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
@@ -115,9 +121,9 @@
         }
       }
     },
-
     "/auth/recovery/request": {
       "post": {
+        "tags": ["Recovery"],
         "summary": "Solicitar recuperación de contraseña (envía link al correo)",
         "requestBody": {
           "required": true,
@@ -138,9 +144,9 @@
         }
       }
     },
-
     "/auth/recovery/confirm": {
       "post": {
+        "tags": ["Recovery"],
         "summary": "Confirmar recuperación de contraseña (token + nueva contraseña)",
         "requestBody": {
           "required": true,
@@ -164,9 +170,9 @@
         }
       }
     },
-
     "/usuarios/nuevo": {
       "post": {
+        "tags": ["Usuarios"],
         "summary": "Crear un nuevo usuario",
         "requestBody": {
           "required": true,
@@ -190,9 +196,9 @@
         }
       }
     },
-
     "/usuarios/actualizar": {
       "put": {
+        "tags": ["Usuarios"],
         "summary": "Actualizar un usuario existente",
         "requestBody": {
           "required": true,
@@ -215,9 +221,9 @@
         }
       }
     },
-
     "/usuarios/eliminar": {
       "post": {
+        "tags": ["Usuarios"],
         "summary": "Eliminar un usuario",
         "requestBody": {
           "required": true,
@@ -238,9 +244,9 @@
         }
       }
     },
-
     "/usuarios": {
       "get": {
+        "tags": ["Usuarios"],
         "summary": "Listar usuarios",
         "responses": {
           "200": { "$ref": "#/components/responses/RespOk_UsuarioPublicoArray" },
@@ -249,7 +255,6 @@
       }
     }
   },
-
   "components": {
     "securitySchemes": {
       "bearerAuth": {
