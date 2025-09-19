@@ -54,4 +54,27 @@ export const UsuarioModel = {
     const { rows } = await pool.query(sql, [id]);
     return rows[0];
   },
+
+  async setOtpSecret(userId: number, secretBase32: string) {
+    const sql = `
+      UPDATE usuarios
+      SET otp_secret=$1, otp_enabled=true
+      WHERE id=$2
+      RETURNING id, email, nombre, rol, creado_en
+    `;
+    const { rows } = await pool.query(sql, [secretBase32, userId]);
+    return rows[0];
+  },
+
+  async getOtpInfoById(id: number) {
+    const sql = `SELECT id, email, otp_enabled, otp_secret FROM usuarios WHERE id=$1`;
+    const { rows } = await pool.query(sql, [id]);
+    return rows[0];
+  },
+
+  async getOtpInfoByEmail(email: string) {
+    const sql = `SELECT id, email, otp_enabled, otp_secret FROM usuarios WHERE email=$1`;
+    const { rows } = await pool.query(sql, [email]);
+    return rows[0];
+  },
 };

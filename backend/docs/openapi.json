@@ -8,7 +8,7 @@
   "paths": {
     "/auth/login": {
       "post": {
-        "summary": "Login con email y password",
+        "summary": "Login con email y password (paso 1)",
         "requestBody": {
           "required": true,
           "content": {
@@ -33,6 +33,138 @@
         }
       }
     },
+
+    "/auth/login/otp": {
+      "post": {
+        "summary": "Verificar OTP/backup y emitir token final (paso 2)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth", "code"],
+                "properties": {
+                  "preAuth": { "type": "string" },
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 },
+                  "deviceId": { "type": "string" }
+                }
+              },
+              "example": { "preAuth": "eyJhbGciOi...", "code": "123456" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiOk_Login" },
+                "example": {
+                  "codigo": 0,
+                  "mensaje": "OK",
+                  "path": "/auth/login/otp",
+                  "timestamp": "2025-01-01T10:00:00Z",
+                  "data": { "requiresOtp": false, "token": "eyJhbGciOi..." }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
+    "/auth/otp/setup/start": {
+      "post": {
+        "summary": "Iniciar configuración de OTP (Google Authenticator)",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_OtpSetupStart" },
+          "401": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
+    "/auth/otp/setup/confirm": {
+      "post": {
+        "summary": "Confirmar OTP (guardar secreto + generar backup codes)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["secret", "code"],
+                "properties": {
+                  "secret": { "type": "string", "minLength": 16, "description": "Secreto base32" },
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 }
+                }
+              },
+              "example": { "secret": "JBSWY3DPEHPK3PXP", "code": "123456" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_OtpSetupConfirm" },
+          "401": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
+    "/auth/recovery/request": {
+      "post": {
+        "summary": "Solicitar recuperación de contraseña (envía link al correo)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": { "email": { "type": "string", "format": "email" } }
+              },
+              "example": { "email": "edu@test.com" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_Generic" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
+    "/auth/recovery/confirm": {
+      "post": {
+        "summary": "Confirmar recuperación de contraseña (token + nueva contraseña)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "newPassword"],
+                "properties": {
+                  "token": { "type": "string", "minLength": 20 },
+                  "newPassword": { "type": "string", "minLength": 8 }
+                }
+              },
+              "example": { "token": "abc123...", "newPassword": "NuevoPass1!" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_Generic" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
     "/usuarios/nuevo": {
       "post": {
         "summary": "Crear un nuevo usuario",
@@ -58,6 +190,7 @@
         }
       }
     },
+
     "/usuarios/actualizar": {
       "put": {
         "summary": "Actualizar un usuario existente",
@@ -82,6 +215,7 @@
         }
       }
     },
+
     "/usuarios/eliminar": {
       "post": {
         "summary": "Eliminar un usuario",
@@ -104,6 +238,7 @@
         }
       }
     },
+
     "/usuarios": {
       "get": {
         "summary": "Listar usuarios",
@@ -114,7 +249,15 @@
       }
     }
   },
+
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
     "schemas": {
       "UsuarioCrear": {
         "type": "object",
@@ -158,6 +301,7 @@
           "detalle": { "type": "object", "nullable": true }
         }
       },
+
       "ApiError": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" }
@@ -169,6 +313,7 @@
           "timestamp": "2025-01-01T10:00:00Z"
         }
       },
+
       "ApiOk_Login": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" },
@@ -178,16 +323,28 @@
               "data": {
                 "type": "object",
                 "properties": {
-                  "token": { "type": "string" },
                   "requiresOtp": { "type": "boolean" },
-                  "otp_example_code": { "type": "string" }
-                }
+                  "token": { "type": "string", "nullable": true },
+                  "preAuth": { "type": "string", "nullable": true }
+                },
+                "required": ["requiresOtp"]
               }
             },
             "required": ["data"]
           }
-        ]
+        ],
+        "example": {
+          "codigo": 0,
+          "mensaje": "OK",
+          "path": "/auth/login",
+          "timestamp": "2025-01-01T10:00:00Z",
+          "data": {
+            "requiresOtp": true,
+            "preAuth": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          }
+        }
       },
+
       "ApiOk_UsuarioPublico": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" },
@@ -200,6 +357,7 @@
           }
         ]
       },
+
       "ApiOk_UsuarioPublicoArray": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" },
@@ -215,6 +373,7 @@
           }
         ]
       },
+
       "ApiOk_Eliminar": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" },
@@ -233,38 +392,93 @@
             "required": ["data"]
           }
         ]
+      },
+
+      "ApiOk_OtpSetupStart": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "secret": { "type": "string" },
+                  "otpauth_uri": { "type": "string" },
+                  "qrcode_png": { "type": "string", "description": "data:image/png;base64,..." }
+                },
+                "required": ["secret", "otpauth_uri"]
+              }
+            },
+            "required": ["data"]
+          }
+        ]
+      },
+
+      "ApiOk_OtpSetupConfirm": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "otp_enabled": { "type": "boolean" },
+                  "backup_codes": { "type": "array", "items": { "type": "string" } }
+                },
+                "required": ["otp_enabled", "backup_codes"]
+              }
+            },
+            "required": ["data"]
+          }
+        ]
+      },
+
+      "ApiOk_Generic": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": { "data": { "type": "object" } },
+            "required": ["data"]
+          }
+        ]
       }
     },
+
     "responses": {
       "RespOk_Login": {
         "description": "OK",
-        "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Login" } }
-        }
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Login" } } }
       },
       "RespOk_UsuarioPublico": {
         "description": "OK",
-        "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublico" } }
-        }
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublico" } } }
       },
       "RespOk_UsuarioPublicoArray": {
         "description": "OK",
-        "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublicoArray" } }
-        }
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublicoArray" } } }
       },
       "RespOk_Eliminar": {
         "description": "OK",
-        "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Eliminar" } }
-        }
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Eliminar" } } }
+      },
+      "RespOk_OtpSetupStart": {
+        "description": "OK",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_OtpSetupStart" } } }
+      },
+      "RespOk_OtpSetupConfirm": {
+        "description": "OK",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_OtpSetupConfirm" } } }
+      },
+      "RespOk_Generic": {
+        "description": "OK",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Generic" } } }
       },
       "RespError": {
         "description": "Error estándar",
-        "content": {
-          "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } }
-        }
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
       }
     }
   }
