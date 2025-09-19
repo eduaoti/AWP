@@ -3,7 +3,7 @@
   "info": {
     "title": "AWP MVP API",
     "version": "1.0.0",
-    "description": "API básica para usuarios y auth con validación estricta"
+    "description": "API básica para usuarios y auth con validación estricta y respuesta estándar {codigo, mensaje, data}"
   },
   "paths": {
     "/auth/login": {
@@ -15,7 +15,7 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["email","password"],
+                "required": ["email", "password"],
                 "properties": {
                   "email": { "type": "string", "format": "email" },
                   "password": { "type": "string", "minLength": 8 }
@@ -26,23 +26,10 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Login exitoso",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "token": { "type": "string" },
-                    "usuario": {
-                      "$ref": "#/components/schemas/UsuarioPublico"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": { "description": "Credenciales inválidas" }
+          "200": { "$ref": "#/components/responses/RespOk_Login" },
+          "401": { "$ref": "#/components/responses/RespError" },
+          "429": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
@@ -64,15 +51,10 @@
           }
         },
         "responses": {
-          "201": {
-            "description": "Usuario creado",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/UsuarioPublico" }
-              }
-            }
-          },
-          "400": { "description": "Validación fallida o email duplicado" }
+          "201": { "$ref": "#/components/responses/RespOk_UsuarioPublico" },
+          "400": { "$ref": "#/components/responses/RespError" },
+          "409": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
@@ -94,15 +76,9 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Usuario actualizado",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/UsuarioPublico" }
-              }
-            }
-          },
-          "404": { "description": "Usuario no encontrado" }
+          "200": { "$ref": "#/components/responses/RespOk_UsuarioPublico" },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
@@ -122,21 +98,9 @@
           }
         },
         "responses": {
-          "200": {
-            "description": "Usuario eliminado",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "mensaje": { "type": "string" },
-                    "id": { "type": "integer" }
-                  }
-                }
-              }
-            }
-          },
-          "404": { "description": "Usuario no encontrado" }
+          "200": { "$ref": "#/components/responses/RespOk_Eliminar" },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
@@ -144,17 +108,8 @@
       "get": {
         "summary": "Listar usuarios",
         "responses": {
-          "200": {
-            "description": "Lista de usuarios",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": { "$ref": "#/components/schemas/UsuarioPublico" }
-                }
-              }
-            }
-          }
+          "200": { "$ref": "#/components/responses/RespOk_UsuarioPublicoArray" },
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     }
@@ -163,22 +118,22 @@
     "schemas": {
       "UsuarioCrear": {
         "type": "object",
-        "required": ["nombre","email","password","rol"],
+        "required": ["nombre", "email", "password", "rol"],
         "properties": {
           "nombre": { "type": "string", "minLength": 2, "maxLength": 80 },
           "email": { "type": "string", "format": "email" },
           "password": { "type": "string", "minLength": 8 },
-          "rol": { "type": "string", "enum": ["admin","editor","lector"] }
+          "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
         }
       },
       "UsuarioActualizar": {
         "type": "object",
-        "required": ["id","nombre","email","rol"],
+        "required": ["id", "nombre", "email", "rol"],
         "properties": {
           "id": { "type": "integer" },
           "nombre": { "type": "string" },
           "email": { "type": "string", "format": "email" },
-          "rol": { "type": "string", "enum": ["admin","editor","lector"] }
+          "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
         }
       },
       "UsuarioPublico": {
@@ -189,6 +144,126 @@
           "email": { "type": "string" },
           "rol": { "type": "string" },
           "creado_en": { "type": "string", "format": "date-time" }
+        }
+      },
+
+      "ApiBase": {
+        "type": "object",
+        "required": ["codigo", "mensaje", "path", "timestamp"],
+        "properties": {
+          "codigo": { "type": "integer", "description": "0=OK, >0=Error" },
+          "mensaje": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "path": { "type": "string" },
+          "detalle": { "type": "object", "nullable": true }
+        }
+      },
+      "ApiError": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" }
+        ],
+        "example": {
+          "codigo": 4,
+          "mensaje": "Credenciales inválidas",
+          "path": "/auth/login",
+          "timestamp": "2025-01-01T10:00:00Z"
+        }
+      },
+      "ApiOk_Login": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string" },
+                  "requiresOtp": { "type": "boolean" },
+                  "otp_example_code": { "type": "string" }
+                }
+              }
+            },
+            "required": ["data"]
+          }
+        ]
+      },
+      "ApiOk_UsuarioPublico": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": { "$ref": "#/components/schemas/UsuarioPublico" }
+            },
+            "required": ["data"]
+          }
+        ]
+      },
+      "ApiOk_UsuarioPublicoArray": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/UsuarioPublico" }
+              }
+            },
+            "required": ["data"]
+          }
+        ]
+      },
+      "ApiOk_Eliminar": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "mensaje": { "type": "string" },
+                  "id": { "type": "integer" }
+                },
+                "required": ["id"]
+              }
+            },
+            "required": ["data"]
+          }
+        ]
+      }
+    },
+    "responses": {
+      "RespOk_Login": {
+        "description": "OK",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Login" } }
+        }
+      },
+      "RespOk_UsuarioPublico": {
+        "description": "OK",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublico" } }
+        }
+      },
+      "RespOk_UsuarioPublicoArray": {
+        "description": "OK",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublicoArray" } }
+        }
+      },
+      "RespOk_Eliminar": {
+        "description": "OK",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Eliminar" } }
+        }
+      },
+      "RespError": {
+        "description": "Error estándar",
+        "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } }
         }
       }
     }

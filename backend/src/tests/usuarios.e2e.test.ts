@@ -8,56 +8,75 @@ describe("Usuarios API (validaciones y flujo)", () => {
   it("rechaza Content-Type inválido", async () => {
     const r = await request(app).post("/usuarios/nuevo").send("nombre=EDU");
     expect([400,415]).toContain(r.status);
+    expect(r.body).toHaveProperty("codigo");
+    expect(r.body.codigo).not.toBe(0);
   });
 
-  it("valida password débil (min 8)", async () => {
-    const r = await request(app).post("/usuarios/nuevo").set("Content-Type","application/json")
+  it("valida password débil", async () => {
+    const r = await request(app).post("/usuarios/nuevo")
+      .set("Content-Type","application/json")
       .send({ nombre: "Edu", email: "weak@test.com", password: "1234567", rol: "editor" });
     expect(r.status).toBe(400);
+    expect(r.body.codigo).toBeGreaterThan(0);
   });
 
-  it("crea usuario OK (sin password en respuesta)", async () => {
-    const r = await request(app).post("/usuarios/nuevo").set("Content-Type","application/json")
-      .send({ nombre: "Edu Ortiz", email, password: "Abcdef12", rol: "editor" });
+  it("crea usuario OK (data con id, sin password)", async () => {
+    const r = await request(app).post("/usuarios/nuevo")
+      .set("Content-Type","application/json")
+      .send({ nombre: "Edu Ortiz", email, password: "Abcdef1!", rol: "editor" });
     expect(r.status).toBe(201);
-    idCreado = r.body.id;
-    expect(r.body).not.toHaveProperty("password");
+    expect(r.body.codigo).toBe(0);
+    expect(r.body.data).toHaveProperty("id");
+    expect(r.body.data).not.toHaveProperty("password");
+    idCreado = r.body.data.id;
   });
 
   it("evita duplicado por email", async () => {
-    const r = await request(app).post("/usuarios/nuevo").set("Content-Type","application/json")
-      .send({ nombre: "Otro", email, password: "Abcdef12", rol: "editor" });
-    expect(r.status).toBe(400);
+    const r = await request(app).post("/usuarios/nuevo")
+      .set("Content-Type","application/json")
+      .send({ nombre: "Otro", email, password: "Abcdef1!", rol: "editor" });
+    expect([400,409]).toContain(r.status);
+    expect(r.body.codigo).toBeGreaterThan(0);
   });
 
   it("lista usuarios", async () => {
     const r = await request(app).get("/usuarios");
     expect(r.status).toBe(200);
-    expect(Array.isArray(r.body)).toBe(true);
+    expect(r.body.codigo).toBe(0);
+    expect(Array.isArray(r.body.data)).toBe(true);
   });
 
-  it("actualiza usuario SIN path var", async () => {
-    const r = await request(app).put("/usuarios/actualizar").set("Content-Type","application/json")
+  it("actualiza usuario OK", async () => {
+    const r = await request(app).put("/usuarios/actualizar")
+      .set("Content-Type","application/json")
       .send({ id: idCreado, nombre: "Edu Actualizado", email, rol: "admin" });
     expect(r.status).toBe(200);
-    expect(r.body.nombre).toBe("Edu Actualizado");
+    expect(r.body.codigo).toBe(0);
+    expect(r.body.data.nombre).toBe("Edu Actualizado");
   });
 
-  it("rechaza campos extra por .strict()", async () => {
-    const r = await request(app).put("/usuarios/actualizar").set("Content-Type","application/json")
+  it("rechaza campos extra (strict)", async () => {
+    const r = await request(app).put("/usuarios/actualizar")
+      .set("Content-Type","application/json")
       .send({ id: idCreado, nombre: "X", email, rol: "admin", extra: "no" });
     expect(r.status).toBe(400);
+    expect(r.body.codigo).toBe(1);
   });
 
-  it("elimina usuario SIN path var", async () => {
-    const r = await request(app).post("/usuarios/eliminar").set("Content-Type","application/json")
+  it("elimina usuario OK", async () => {
+    const r = await request(app).post("/usuarios/eliminar")
+      .set("Content-Type","application/json")
       .send({ id: idCreado });
     expect(r.status).toBe(200);
+    expect(r.body.codigo).toBe(0);
+    expect(r.body.data.id).toBe(idCreado);
   });
 
   it("eliminar usuario inexistente", async () => {
-    const r = await request(app).post("/usuarios/eliminar").set("Content-Type","application/json")
+    const r = await request(app).post("/usuarios/eliminar")
+      .set("Content-Type","application/json")
       .send({ id: 99999999 });
     expect(r.status).toBe(404);
+    expect(r.body.codigo).toBe(41); // USER_NOT_FOUND
   });
 });
