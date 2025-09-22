@@ -1,5 +1,12 @@
+// src/middlewares/validate.ts
 import { NextFunction, Request, Response } from "express";
-import { ZodError, ZodObject } from "zod";
+import {
+  ZodError,
+  ZodObject,
+  ZodTypeAny,
+  ZodIssueCode,
+  z
+} from "zod";
 import { AppCode } from "../status/codes";
 import { sendCode } from "../status/respond";
 
@@ -38,13 +45,24 @@ function handleErr(err: unknown, req: Request, res: Response, next: NextFunction
   return next(err);
 }
 
+/** Helpers para detectar si el schema espera body/query/params en la raíz */
+function isZodObject(x: unknown): x is ZodObject<any> {
+  return !!x && x instanceof z.ZodObject;
+}
+function hasRootKey(schema: ZodTypeAny, key: "body" | "query" | "params"): boolean {
+  // Solo ZodObject tiene shape
+  if (!isZodObject(schema)) return false;
+  const shape = schema.shape;
+  return Object.prototype.hasOwnProperty.call(shape, key);
+}
+
 /** Valida y sobrescribe req.body con los valores parseados/transformados */
 export const validateBody =
-  (schema: ZodObject<any>) =>
+  <T extends ZodTypeAny>(schema: T) =>
   (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse({ body: req.body });
+    const parsed = (schema as any).safeParse({ body: req.body });
     if (parsed.success) {
-      req.body = parsed.data.body; // conserva transforms (e.g. email lowercased)
+      if (parsed.data?.body !== undefined) req.body = parsed.data.body;
       return next();
     }
     return handleErr(parsed.error, req, res, next);
@@ -52,11 +70,11 @@ export const validateBody =
 
 /** Valida y sobrescribe req.query con los valores parseados/transformados */
 export const validateQuery =
-  (schema: ZodObject<any>) =>
+  <T extends ZodTypeAny>(schema: T) =>
   (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse({ query: req.query });
+    const parsed = (schema as any).safeParse({ query: req.query });
     if (parsed.success) {
-      req.query = parsed.data.query as any;
+      if (parsed.data?.query !== undefined) req.query = parsed.data.query as any;
       return next();
     }
     return handleErr(parsed.error, req, res, next);
@@ -64,11 +82,11 @@ export const validateQuery =
 
 /** Valida y sobrescribe req.params con los valores parseados/transformados */
 export const validateParams =
-  (schema: ZodObject<any>) =>
+  <T extends ZodTypeAny>(schema: T) =>
   (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse({ params: req.params });
+    const parsed = (schema as any).safeParse({ params: req.params });
     if (parsed.success) {
-      req.params = parsed.data.params as any;
+      if (parsed.data?.params !== undefined) req.params = parsed.data.params as any;
       return next();
     }
     return handleErr(parsed.error, req, res, next);
@@ -81,18 +99,55 @@ export const validateParams =
  * Úsalo solo si defines un schema con varias llaves a la vez.
  */
 export const validateCombined =
-  (schema: ZodObject<any>) =>
+  <T extends ZodTypeAny>(schema: T) =>
   (req: Request, res: Response, next: NextFunction) => {
-    const parsed = schema.safeParse({
+    const parsed = (schema as any).safeParse({
       body: req.body,
       query: req.query,
       params: req.params,
     });
 
     if (parsed.success) {
-      if (parsed.data.body)   req.body = parsed.data.body;
-      if (parsed.data.query)  req.query = parsed.data.query as any;
-      if (parsed.data.params) req.params = parsed.data.params as any;
+      if (parsed.data?.body !== undefined)   req.body = parsed.data.body;
+      if (parsed.data?.query !== undefined)  req.query = parsed.data.query as any;
+      if (parsed.data?.params !== undefined) req.params = parsed.data.params as any;
+      return next();
+    }
+    return handleErr(parsed.error, req, res, next);
+  };
+
+/**
+ * Validador “inteligente”:
+ * - Si el schema raíz contiene .shape.body, valida body.
+ * - Si contiene .shape.query, valida query.
+ * - Si contiene .shape.params, valida params.
+ * - Si no contiene ninguno (o no es ZodObject), intenta validar req.body por defecto.
+ *
+ * Permite usar:  `validate(miSchema)`
+ */
+export const validate =
+  <T extends ZodTypeAny>(schema: T) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const expectBody = hasRootKey(schema, "body");
+    const expectQuery = hasRootKey(schema, "query");
+    const expectParams = hasRootKey(schema, "params");
+
+    // Construye input según lo que el schema declara
+    const input: any = {};
+    if (expectBody) input.body = req.body;
+    if (expectQuery) input.query = req.query;
+    if (expectParams) input.params = req.params;
+
+    // Si no hay llaves en raíz (p. ej. schema simple de body), por conveniencia intentamos validar body
+    const parsed = (expectBody || expectQuery || expectParams)
+      ? (schema as any).safeParse(input)
+      : (schema as any).safeParse({ body: req.body });
+
+    if (parsed.success) {
+      // Sobrescribe solo lo presente en el esquema
+      if (parsed.data?.body !== undefined)   req.body = parsed.data.body;
+      if (parsed.data?.query !== undefined)  req.query = parsed.data.query as any;
+      if (parsed.data?.params !== undefined) req.params = parsed.data.params as any;
       return next();
     }
     return handleErr(parsed.error, req, res, next);

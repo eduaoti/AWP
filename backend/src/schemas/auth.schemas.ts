@@ -1,14 +1,17 @@
+// src/schemas/auth.schemas.ts
 import { z } from "zod";
-import { emailNorm } from "./common";
+import { emailStrict } from "./common";
 import { strongPassword } from "./password";
 
+/* ===== Login paso 1 (password) ===== */
 export const LoginPasswordSchema = z.object({
   body: z.object({
-    email: emailNorm,
+    email: emailStrict,
     password: strongPassword
   }).strict()
 }).strict();
 
+/* ===== Login paso 2 (TOTP o backup) ===== */
 export const LoginTotpSchema = z.object({
   body: z.object({
     preAuth: z.string().min(10),
@@ -17,6 +20,17 @@ export const LoginTotpSchema = z.object({
   }).strict()
 }).strict();
 
+/* ===== Login paso 2 alterno (offline PIN) ===== */
+export const OfflineLoginSchema = z.object({
+  body: z.object({
+    preAuth: z.string().min(10),
+    offlineJwt: z.string().min(20),
+    pin: z.string().min(4).max(10),
+    deviceId: z.string().min(3).optional()
+  }).strict()
+}).strict();
+
+/* ===== Configuración OTP ===== */
 export const OtpSetupStartSchema = z.object({
   body: z.object({}).strict() // sin body; usa token
 }).strict();
@@ -28,8 +42,9 @@ export const OtpSetupConfirmSchema = z.object({
   }).strict()
 }).strict();
 
+/* ===== Recuperación de contraseña ===== */
 export const RecoveryRequestSchema = z.object({
-  body: z.object({ email: emailNorm }).strict()
+  body: z.object({ email: emailStrict }).strict()
 }).strict();
 
 export const RecoveryConfirmSchema = z.object({
