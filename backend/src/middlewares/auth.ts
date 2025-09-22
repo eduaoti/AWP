@@ -1,13 +1,27 @@
+// src/middlewares/auth.ts
 import { Request, Response, NextFunction } from "express";
-import { JWTPayload } from "jose";
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 
-export interface JwtPayload {
+// Payload que esperamos en NUESTROS JWTs
+export interface AuthPayload {
   sub: number;                     // id de usuario
   rol: "admin" | "editor" | "lector";
-  email?: string;                   // opcional: incluir en el token
+  email?: string;
+  jti?: string;                    // opcional: id de sesión
+  exp?: number;                    // unix seconds
+}
+
+/** Type guard para validar que el decoded cumple con AuthPayload mínimo */
+function isAuthPayload(x: unknown): x is AuthPayload {
+  if (typeof x !== "object" || x === null) return false;
+  const o = x as Record<string, unknown>;
+  const hasSub = typeof o.sub === "number" || typeof o.sub === "string";
+  const hasRol =
+    typeof o.rol === "string" &&
+    (o.rol === "admin" || o.rol === "editor" || o.rol === "lector");
+  return hasSub && hasRol;
 }
 
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -19,8 +33,25 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction) => 
   }
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as JWTPayload;
-    (req as any).user = payload; // guardamos el usuario en la request
+    // jsonwebtoken puede devolver string | object; validamos con type guard
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    if (typeof decoded === "string" || !isAuthPayload(decoded)) {
+      return res.status(401).json({ error: "Token inválido o sin claims requeridos" });
+    }
+
+    // Normalizamos sub a number por si vino como string
+    const payload: AuthPayload = {
+      sub: typeof decoded.sub === "string" ? Number(decoded.sub) : decoded.sub,
+      rol: decoded.rol,
+      email: decoded.email,
+      jti: decoded.jti,
+      exp: decoded.exp
+    };
+
+    // Guardamos el usuario en la request
+    (req as any).user = payload;
+
     return next();
   } catch {
     return res.status(401).json({ error: "Token inválido o expirado" });
