@@ -30,14 +30,17 @@ export const OfflineLoginSchema = z.object({
   }).strict()
 }).strict();
 
-/* ===== Configuración OTP ===== */
+/* ===== Configuración OTP (usa preAuth en vez de access token) ===== */
 export const OtpSetupStartSchema = z.object({
-  body: z.object({}).strict() // sin body; usa token
+  body: z.object({
+    preAuth: z.string().min(10)
+  }).strict()
 }).strict();
 
 export const OtpSetupConfirmSchema = z.object({
   body: z.object({
-    secret: z.string().min(16), // base32
+    preAuth: z.string().min(10),
+    secret: z.string().min(16), // clave base32
     code: z.string().min(6).max(8)
   }).strict()
 }).strict();
