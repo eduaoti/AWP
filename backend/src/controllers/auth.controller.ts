@@ -1,4 +1,3 @@
-// src/controllers/auth.controller.ts
 import { Request, Response, NextFunction } from "express";
 import { pool } from "../db";
 import bcrypt from "bcrypt";
@@ -27,7 +26,7 @@ import {
   inferGeo,
   osmLink
 } from "../services/geo";
-import { isOnline } from "../services/net"; // 👈 NUEVO
+import { isOnline } from "../services/net";
 
 // === Config ===
 const JWT = process.env.JWT_SECRET as string;
@@ -69,7 +68,6 @@ async function notifyLogin(params: {
   let mapHref: string | null = null;
 
   if (geo?.lat != null && geo?.lon != null) {
-    // Reverse geocoding con límites de tiempo para no bloquear
     let rev = await withTimeout(reverseGeocodeOSM(geo.lat, geo.lon), 800);
     if (!rev) rev = await withTimeout(reverseGeocodeGoogle(geo.lat, geo.lon), 800);
 
@@ -122,15 +120,11 @@ async function auditLogin(params: {
   }
 }
 
-// === Paso 1: login con password (SOLO email y password) ===
+// === Paso 1: login con password
 export const login = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Geo inferida (con tope para no bloquear)
     const geo = (await withTimeout(inferGeo(req), 700)) ?? undefined;
-
-    // 🔎 Conectividad rápida (≤ ~0.5–0.7s)
     const online = (await withTimeout(isOnline(), 700)) ?? false;
-
     const { email, password } = req.body as { email: string; password: string };
 
     const { rows } = await pool.query(
@@ -139,16 +133,20 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const user = rows[0];
     if (!user) {
       await auditLogin({ req, metodo: "password", exito: false, detalle: "usuario no existe", geo });
-      return sendCode(req, res, AppCode.INVALID_CREDENTIALS);
+      return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
+        message: "Credenciales inválidas: email no registrado."
+      });
     }
 
     const okPass = await bcrypt.compare(password, user.password);
     if (!okPass) {
       await auditLogin({ userId: user.id, req, metodo: "password", exito: false, detalle: "password inválido", geo });
-      return sendCode(req, res, AppCode.INVALID_CREDENTIALS);
+      return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
+        message: "Credenciales inválidas: contraseña incorrecta."
+      });
     }
 
-    // Usuario SIN OTP → requiere enrolamiento
+    // Usuario SIN OTP → enrolamiento
     if (!user.otp_enabled) {
       const preAuth = jwt.sign({ uid: user.id }, JWT_PRE, { expiresIn: "10m" });
 
@@ -164,10 +162,10 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         requiresOtp: true,
         needsEnrollment: true,
         preAuth
-      });
+      }, "Login exitoso: requiere configurar OTP.");
     }
 
-    // Verificar que realmente exista secreto TOTP
+    // Verificar secreto TOTP realmente existe
     const info = await UsuarioModel.getOtpInfoById(user.id);
     if (!info?.otp_secret) {
       const preAuth = jwt.sign({ uid: user.id }, JWT_PRE, { expiresIn: "10m" });
@@ -182,49 +180,33 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
         requiresOtp: true,
         needsEnrollment: true,
         preAuth
-      });
+      }, "Login exitoso: requiere configurar OTP.");
     }
 
-    // === OTP habilitado y con secreto válido ===
+    // OTP habilitado y con secreto válido
     const preAuth = jwt.sign({ uid: user.id }, JWT_PRE, { expiresIn: "5m" });
 
     if (online) {
-      // ✅ ONLINE → NO incluir offline. Enviar OTP en background (no bloquea respuesta)
       setImmediate(async () => {
         try {
           const code = genTotp(info.otp_secret!);
+          console.log(`[LOGIN][OTP] Enviando OTP a ${user.email}`);
           await sendOrQueue(
             user.email,
             "Tu código OTP",
             `<p>Tu código de acceso es: <b>${code}</b> (válido ~30s)</p>`
           );
         } catch {
-          // Si falla SMTP, el usuario igual puede usar su app TOTP
+          /* si falla SMTP, la app TOTP sigue funcionando */
         }
       });
 
-      await auditLogin({
-        userId: user.id,
-        req,
-        metodo: "password+preAuth (online)",
-        exito: true,
-        geo
-      });
-
-      return ok(req, res, { requiresOtp: true, preAuth });
+      await auditLogin({ userId: user.id, req, metodo: "password+preAuth (online)", exito: true, geo });
+      return ok(req, res, { requiresOtp: true, preAuth }, "Login exitoso: verifica con OTP.");
     } else {
-      // 🚫 OFFLINE → generar credenciales offline
       const offline = await createOfflinePinForUser(user.id, geo);
-
-      await auditLogin({
-        userId: user.id,
-        req,
-        metodo: "password+preAuth (offline-ready)",
-        exito: true,
-        geo
-      });
-
-      return ok(req, res, { requiresOtp: true, preAuth, offline });
+      await auditLogin({ userId: user.id, req, metodo: "password+preAuth (offline-ready)", exito: true, geo });
+      return ok(req, res, { requiresOtp: true, preAuth, offline }, "Login exitoso: sin internet, usa PIN offline.");
     }
   } catch (e) { next(e); }
 };
@@ -232,9 +214,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
 // Paso 2: verificar OTP / backup → token final
 export const verificarOtpLogin = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Geo con timeout
     const geo = (await withTimeout(inferGeo(req), 700)) ?? undefined;
-
     const { preAuth, code, deviceId } = req.body as { preAuth: string; code: string; deviceId?: string };
 
     let uid: number | undefined;
@@ -243,13 +223,17 @@ export const verificarOtpLogin = async (req: Request, res: Response, next: NextF
       uid = p.uid;
     } catch {
       await auditLogin({ req, metodo: "preAuth+totp", exito: false, detalle: "preAuth inválido/expirado", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: preAuth inválido o expirado."
+      });
     }
 
     const info = await UsuarioModel.getOtpInfoById(uid!);
     if (!info?.otp_enabled || !info.otp_secret) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+totp", exito: false, detalle: "usuario sin OTP", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: el usuario no tiene OTP habilitado."
+      });
     }
 
     let okCode = verifyTotp(info.otp_secret, code);
@@ -259,7 +243,10 @@ export const verificarOtpLogin = async (req: Request, res: Response, next: NextF
     }
     if (!okCode) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+totp", exito: false, detalle: "código inválido", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      // 👇 tu requerimiento: código incorrecto → 400 Validación fallida
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: "Validación fallida: código OTP incorrecto."
+      });
     }
 
     const { rows } = await pool.query("SELECT rol, email FROM usuarios WHERE id=$1", [uid]);
@@ -280,7 +267,6 @@ export const verificarOtpLogin = async (req: Request, res: Response, next: NextF
 
     await auditLogin({ userId: uid, req, metodo: "password+totp", exito: true, detalle: deviceId || null, geo });
 
-    // Notificación sin bloquear la respuesta
     setImmediate(() => notifyLogin({
       to: rows[0].email,
       mode: "online",
@@ -289,16 +275,14 @@ export const verificarOtpLogin = async (req: Request, res: Response, next: NextF
       geo
     }).catch(() => {}));
 
-    return ok(req, res, { token });
+    return ok(req, res, { token }, "Inicio de sesión completado.");
   } catch (e) { next(e); }
 };
 
 // Paso 2 alterno: canjear PIN offline
 export const verificarOtpOffline = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Geo con timeout
     const geo = (await withTimeout(inferGeo(req), 700)) ?? undefined;
-
     const { preAuth, offlineJwt, pin, deviceId } = req.body as { preAuth: string; offlineJwt: string; pin: string; deviceId?: string };
 
     let uid: number | undefined;
@@ -307,7 +291,9 @@ export const verificarOtpOffline = async (req: Request, res: Response, next: Nex
       uid = p.uid;
     } catch {
       await auditLogin({ req, metodo: "preAuth+offlinePin", exito: false, detalle: "preAuth inválido/expirado", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: preAuth inválido o expirado."
+      });
     }
 
     let offPayload: any;
@@ -315,18 +301,25 @@ export const verificarOtpOffline = async (req: Request, res: Response, next: Nex
       offPayload = jwt.verify(offlineJwt, JWT_OFFLINE);
     } catch {
       await auditLogin({ userId: uid, req, metodo: "preAuth+offlinePin", exito: false, detalle: "offlineJwt inválido", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: offlineJwt inválido o expirado."
+      });
     }
 
     if (!offPayload || offPayload.typ !== "offline-pin" || offPayload.uid !== uid) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+offlinePin", exito: false, detalle: "payload no coincide", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: el offlineJwt no corresponde al usuario/preAuth."
+      });
     }
 
     const okOnce = await consumeOfflinePin(uid!, offPayload.jti, pin, geo);
     if (!okOnce) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+offlinePin", exito: false, detalle: "PIN inválido/expirado", geo });
-      return sendCode(req, res, AppCode.OTP_INVALID);
+      // 👇 PIN incorrecto → 400 Validación fallida (como pediste)
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: "Validación fallida: PIN incorrecto o expirado."
+      });
     }
 
     const { rows } = await pool.query("SELECT rol, email FROM usuarios WHERE id=$1", [uid]);
@@ -347,7 +340,6 @@ export const verificarOtpOffline = async (req: Request, res: Response, next: Nex
 
     await auditLogin({ userId: uid, req, metodo: "preAuth+offlinePin", exito: true, detalle: deviceId || null, geo });
 
-    // Notificación sin bloquear la respuesta
     setImmediate(() => notifyLogin({
       to: rows[0].email,
       mode: "offline",
@@ -356,22 +348,27 @@ export const verificarOtpOffline = async (req: Request, res: Response, next: Nex
       geo
     }).catch(() => {}));
 
-    return ok(req, res, { token });
+    return ok(req, res, { token }, "Inicio de sesión (modo offline) completado.");
   } catch (e) { next(e); }
 };
 
-// ====== Setup OTP por preAuth (no requiere access token) ======
+// ====== Setup OTP por preAuth ======
 export const iniciarSetupOtp = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { preAuth } = req.body as { preAuth?: string };
-    if (!preAuth) return sendCode(req, res, AppCode.UNAUTHORIZED);
+    if (!preAuth) return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+      message: "Validación fallida: falta preAuth."
+    });
 
     let userId: number;
     try {
       const p = jwt.verify(preAuth, JWT_PRE) as any;
       userId = Number(p.uid);
     } catch {
-      return sendCode(req, res, AppCode.UNAUTHORIZED);
+      // 👉 Config OTP: preAuth inválido → 400
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: "Validación fallida: preAuth inválido o expirado."
+      });
     }
 
     const info = await UsuarioModel.getOtpInfoById(userId);
@@ -381,53 +378,67 @@ export const iniciarSetupOtp = async (req: Request, res: Response, next: NextFun
     const uri = keyUri(account, "AWP", secret);
     const pngDataUrl = await qrDataUrl(uri);
 
-    return ok(req, res, { secret, otpauth_uri: uri, qrcode_png: pngDataUrl });
+    return ok(req, res, { secret, otpauth_uri: uri, qrcode_png: pngDataUrl }, "OTP inicializado.");
   } catch (e) { next(e); }
 };
 
 export const confirmarSetupOtp = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { preAuth, secret, code } = req.body as { preAuth?: string; secret: string; code: string };
-    if (!preAuth) return sendCode(req, res, AppCode.UNAUTHORIZED);
+    const { preAuth, secret, code, deviceId } = req.body as { preAuth?: string; secret: string; code: string; deviceId: string };
+    if (!preAuth) return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+      message: "Validación fallida: falta preAuth."
+    });
 
     let userId: number;
     try {
       const p = jwt.verify(preAuth, JWT_PRE) as any;
       userId = Number(p.uid);
     } catch {
-      return sendCode(req, res, AppCode.UNAUTHORIZED);
+      // 👉 Config OTP: preAuth inválido → 400
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: "Validación fallida: preAuth inválido o expirado."
+      });
     }
 
-    if (!verifyTotp(secret, code)) return sendCode(req, res, AppCode.OTP_INVALID);
+    if (!verifyTotp(secret, code)) {
+      // 👉 Config OTP: code incorrecto/caducado → 401 OTP inválido
+      return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
+        message: "OTP inválido: código incorrecto o vencido."
+      });
+    }
 
     await UsuarioModel.setOtpSecret(userId, secret);
     const { plains, hashes } = genBackupCodes(8);
     await SecurityModel.saveBackupCodes(userId, hashes);
 
-    return ok(req, res, { otp_enabled: true, backup_codes: plains });
+    return ok(req, res, { otp_enabled: true, backup_codes: plains }, "OTP configurado correctamente.");
   } catch (e) { next(e); }
 };
 
-// ====== Recuperación de contraseña (igual) ======
+// ====== Recuperación de contraseña ======
 export const solicitarRecuperacion = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email } = req.body as { email: string };
     const user = await UsuarioModel.findByEmail(email);
-    if (user) {
-      const raw = crypto.randomBytes(24).toString("hex");
-      const hash = sha256(raw);
-      const mins = Number(process.env.RECOVERY_TOKEN_MINUTES || 15);
-      const expira = new Date(Date.now() + mins * 60_000);
-      await SecurityModel.createRecoveryToken(user.id, hash, expira);
-      const link = `${process.env.APP_URL}/reset?token=${raw}`;
-      await sendOrQueue(
-        user.email,
-        "Recupera tu contraseña",
-        `<p>Solicitaste recuperar tu contraseña.</p>
-         <p>Enlace (expira en ${mins} min): <a href="${link}">${link}</a></p>`
-      );
+    if (!user) {
+      // 👉 tu requerimiento: email no registrado → 400 Validación fallida
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: "Validación fallida: el email no está registrado."
+      });
     }
-    return ok(req, res, { info: "Si el correo existe, enviaremos instrucciones." });
+    const raw = crypto.randomBytes(24).toString("hex");
+    const hash = sha256(raw);
+    const mins = Number(process.env.RECOVERY_TOKEN_MINUTES || 15);
+    const expira = new Date(Date.now() + mins * 60_000);
+    await SecurityModel.createRecoveryToken(user.id, hash, expira);
+    const link = `${process.env.APP_URL}/reset?token=${raw}`;
+    await sendOrQueue(
+      user.email,
+      "Recupera tu contraseña",
+      `<p>Solicitaste recuperar tu contraseña.</p>
+       <p>Enlace (expira en ${mins} min): <a href="${link}">${link}</a></p>`
+    );
+    return ok(req, res, { info: "Se enviaron las instrucciones al correo." }, "Solicitud de recuperación enviada.");
   } catch (e) { next(e); }
 };
 
@@ -435,9 +446,25 @@ export const confirmarRecuperacion = async (req: Request, res: Response, next: N
   try {
     const { token, newPassword } = req.body as { token: string; newPassword: string };
     const uid = await SecurityModel.useRecoveryToken(sha256(token));
-    if (!uid) return sendCode(req, res, AppCode.INVALID_CREDENTIALS);
+    if (!uid) {
+      // 👉 token inválido/expirado → 401 Credenciales inválidas
+      return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
+        message: "Credenciales inválidas: token de recuperación inválido o expirado."
+      });
+    }
+
+    // No permitir reutilizar la misma contraseña
+    const row = await pool.query("SELECT password FROM usuarios WHERE id=$1", [uid]);
+    const misma = await bcrypt.compare(newPassword, row.rows[0].password);
+    if (misma) {
+      // 👉 como pediste
+      return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
+        message: "Credenciales inválidas: la nueva contraseña no puede ser igual a la anterior."
+      });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query("UPDATE usuarios SET password=$1 WHERE id=$2", [hashed, uid]);
-    return ok(req, res, { reset: true });
+    return ok(req, res, { reset: true }, "Contraseña restablecida correctamente.");
   } catch (e) { next(e); }
 };

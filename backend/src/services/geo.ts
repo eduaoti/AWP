@@ -9,8 +9,7 @@ export async function reverseGeocodeOSM(
     const url =
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1&accept-language=es`;
     const r = await fetch(url, {
-      headers: { "User-Agent": "AWP-App/1.0 (eduardo4t8@gmail.com)" },
-      // ⏱️ Timeout corto para no bloquear el login
+      headers: { "User-Agent": "AWP-App/1.0 (+https://awp.local)" },
       signal: AbortSignal.timeout(800)
     });
     const j = await r.json();
