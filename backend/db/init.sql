@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
 -- Campos OTP en usuarios
 ALTER TABLE usuarios
   ADD COLUMN IF NOT EXISTS otp_enabled BOOLEAN DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS otp_secret TEXT;
+  ADD COLUMN IF NOT EXISTS otp_secret  TEXT;
 
 -- 2) Backup codes (consumo único)
 CREATE TABLE IF NOT EXISTS otp_backup_codes (
@@ -107,7 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_email_queue_pending
   ON email_queue (sent_at)
   WHERE sent_at IS NULL;
 
--- 7) Sesiones activas (una fila por JWT emitido)
+-- 7) Sesiones (una fila por JWT emitido)
 CREATE TABLE IF NOT EXISTS user_sessions (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
@@ -125,15 +125,50 @@ CREATE TABLE IF NOT EXISTS user_sessions (
   last_seen TIMESTAMPTZ
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_jti ON user_sessions (jti);
-CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions (user_id);
+-- 👉 NUEVO: estado de sesión
+ALTER TABLE user_sessions
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  CHECK (status IN ('active','closed','expired'));
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_jti  ON user_sessions (jti);
+CREATE INDEX        IF NOT EXISTS idx_user_sessions_user ON user_sessions (user_id);
+
+-- 👉 NUEVO: índice para encontrar rápidamente la sesión activa
+CREATE INDEX IF NOT EXISTS idx_user_sessions_active
+  ON user_sessions (user_id)
+  WHERE status='active' AND revoked=false;
+
+-- 👉 NUEVO: ÚNICA sesión activa por usuario (la app marca expiradas/cerradas)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_user_active_session
+  ON user_sessions (user_id)
+  WHERE status='active' AND revoked=false;
+
+-- 8) 👉 NUEVO: Ventana de OTP vigente (evita regenerar mientras no expire)
+CREATE TABLE IF NOT EXISTS otp_requests (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  issued_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,   -- ej. NOW() + interval '45 seconds'
+  delivered BOOLEAN DEFAULT FALSE
+);
+
+-- 🔧 FIX: quitar NOW() del predicado (inmutable)
+CREATE INDEX IF NOT EXISTS idx_otp_requests_user_valid
+  ON otp_requests (user_id, expires_at)
+  WHERE delivered = true;
+
+-- (Opcional, ayuda en purgas por fecha)
+CREATE INDEX IF NOT EXISTS idx_otp_requests_expires_at
+  ON otp_requests (expires_at);
+
 -- =========================================
--- (Opcional) Limpiezas programadas:
+-- (Opcional) Limpiezas programadas (jobs/cron):
 --  - Eliminar PINs expirados de hace > 24h
 --  - Eliminar recovery tokens expirados de hace > 7 días
+--  - Limpiar otp_requests expirados de hace > 1 día
 -- =========================================
--- -- Ejemplo de tareas programadas (ejecutar vía cron o job scheduler):
 -- DELETE FROM offline_login_tokens WHERE expira_en < NOW() - INTERVAL '1 day';
--- DELETE FROM recovery_tokens WHERE expira_en < NOW() - INTERVAL '7 days';
+-- DELETE FROM recovery_tokens      WHERE expira_en < NOW() - INTERVAL '7 days';
+-- DELETE FROM otp_requests         WHERE expires_at < NOW() - INTERVAL '1 day';
 
 -- Fin del esquema

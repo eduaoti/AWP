@@ -1,3 +1,4 @@
+// src/controllers/auth.controller.ts
 import { Request, Response, NextFunction } from "express";
 import { pool } from "../db";
 import bcrypt from "bcrypt";
@@ -19,7 +20,7 @@ import {
   getUserAgent
 } from "../services/offline";
 import { enqueueMail } from "../services/emailQueue";
-import { createSession } from "../services/sessions";
+import { createSession, expireOldSessions, hasActiveSession } from "../services/sessions";
 import {
   reverseGeocodeOSM,
   reverseGeocodeGoogle,
@@ -32,7 +33,10 @@ import { isOnline } from "../services/net";
 const JWT = process.env.JWT_SECRET as string;
 const JWT_PRE = process.env.JWT_PREAUTH_SECRET as string;
 const JWT_OFFLINE = process.env.JWT_OFFLINE_SECRET || "dev-offline-secret";
-const ACCESS_TTL_MS = Number(process.env.JWT_EXPIRES_MIN || 60) * 60 * 1000;
+
+// ⬇️ TTL de sesión en minutos (default 5). Usamos este valor para JWT final y DB.
+const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MIN || 5);
+const ACCESS_TTL_MS = SESSION_TTL_MIN * 60 * 1000;
 
 // === Helpers de timeout para no bloquear ===
 async function withTimeout<T>(p: Promise<T>, ms = 800): Promise<T | null> {
@@ -146,6 +150,15 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       });
     }
 
+    // 🔒 Antes de cualquier cosa: expira sesiones viejas y bloquea si ya hay una activa
+    await expireOldSessions(user.id);
+    if (await hasActiveSession(user.id)) {
+      await auditLogin({ userId: user.id, req, metodo: "password", exito: false, detalle: "ya tiene sesión activa", geo });
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: `Ya hay una sesión activa para este usuario. Cierra la sesión actual o espera a que expire (${SESSION_TTL_MIN} minutos).`
+      });
+    }
+
     // Usuario SIN OTP → enrolamiento
     if (!user.otp_enabled) {
       const preAuth = jwt.sign({ uid: user.id }, JWT_PRE, { expiresIn: "10m" });
@@ -187,6 +200,12 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
     const preAuth = jwt.sign({ uid: user.id }, JWT_PRE, { expiresIn: "5m" });
 
     if (online) {
+      // ⛔️ No reenviar OTP si ya hay una ventana vigente
+      if (await SecurityModel.hasPendingOtpWindow(user.id)) {
+        await auditLogin({ userId: user.id, req, metodo: "password+preAuth (otp-skip)", exito: true, detalle: "OTP aún vigente", geo });
+        return ok(req, res, { requiresOtp: true, preAuth }, "Login exitoso: ya se envió un OTP recientemente, revisa tu app/correo.");
+      }
+
       setImmediate(async () => {
         try {
           const code = genTotp(info.otp_secret!);
@@ -196,6 +215,8 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
             "Tu código OTP",
             `<p>Tu código de acceso es: <b>${code}</b> (válido ~30s)</p>`
           );
+          // Abre ventana vigente para evitar reenvíos inmediatos (45 s)
+          await SecurityModel.openOtpWindow(user.id, 45);
         } catch {
           /* si falla SMTP, la app TOTP sigue funcionando */
         }
@@ -243,16 +264,28 @@ export const verificarOtpLogin = async (req: Request, res: Response, next: NextF
     }
     if (!okCode) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+totp", exito: false, detalle: "código inválido", geo });
-      // 👇 tu requerimiento: código incorrecto → 400 Validación fallida
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
         message: "Validación fallida: código OTP incorrecto."
+      });
+    }
+
+    // ⛔️ Evitar doble sesión
+    await expireOldSessions(uid!);
+    if (await hasActiveSession(uid!)) {
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: `Ya hay una sesión activa para este usuario. Cierra la sesión actual o espera a que expire (${SESSION_TTL_MIN} minutos).`
       });
     }
 
     const { rows } = await pool.query("SELECT rol, email FROM usuarios WHERE id=$1", [uid]);
 
     const jti = crypto.randomUUID();
-    const token = jwt.sign({ sub: uid, rol: rows[0]?.rol || "lector", jti }, JWT, { expiresIn: "1h" });
+    // JWT final por SESSION_TTL_MIN minutos
+    const token = jwt.sign(
+      { sub: uid, rol: rows[0]?.rol || "lector", jti },
+      JWT,
+      { expiresIn: `${SESSION_TTL_MIN}m` }
+    );
     const expiresAt = new Date(Date.now() + ACCESS_TTL_MS);
 
     await createSession({
@@ -316,16 +349,27 @@ export const verificarOtpOffline = async (req: Request, res: Response, next: Nex
     const okOnce = await consumeOfflinePin(uid!, offPayload.jti, pin, geo);
     if (!okOnce) {
       await auditLogin({ userId: uid, req, metodo: "preAuth+offlinePin", exito: false, detalle: "PIN inválido/expirado", geo });
-      // 👇 PIN incorrecto → 400 Validación fallida (como pediste)
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
         message: "Validación fallida: PIN incorrecto o expirado."
+      });
+    }
+
+    // ⛔️ Evitar doble sesión
+    await expireOldSessions(uid!);
+    if (await hasActiveSession(uid!)) {
+      return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        message: `Ya hay una sesión activa para este usuario. Cierra la sesión actual o espera a que expire (${SESSION_TTL_MIN} minutos).`
       });
     }
 
     const { rows } = await pool.query("SELECT rol, email FROM usuarios WHERE id=$1", [uid]);
 
     const jti = crypto.randomUUID();
-    const token = jwt.sign({ sub: uid, rol: rows[0]?.rol || "lector", jti }, JWT, { expiresIn: "1h" });
+    const token = jwt.sign(
+      { sub: uid, rol: rows[0]?.rol || "lector", jti },
+      JWT,
+      { expiresIn: `${SESSION_TTL_MIN}m` }
+    );
     const expiresAt = new Date(Date.now() + ACCESS_TTL_MS);
 
     await createSession({
@@ -365,7 +409,6 @@ export const iniciarSetupOtp = async (req: Request, res: Response, next: NextFun
       const p = jwt.verify(preAuth, JWT_PRE) as any;
       userId = Number(p.uid);
     } catch {
-      // 👉 Config OTP: preAuth inválido → 400
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
         message: "Validación fallida: preAuth inválido o expirado."
       });
@@ -394,14 +437,12 @@ export const confirmarSetupOtp = async (req: Request, res: Response, next: NextF
       const p = jwt.verify(preAuth, JWT_PRE) as any;
       userId = Number(p.uid);
     } catch {
-      // 👉 Config OTP: preAuth inválido → 400
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
         message: "Validación fallida: preAuth inválido o expirado."
       });
     }
 
     if (!verifyTotp(secret, code)) {
-      // 👉 Config OTP: code incorrecto/caducado → 401 OTP inválido
       return sendCode(req, res, AppCode.OTP_INVALID, undefined, {
         message: "OTP inválido: código incorrecto o vencido."
       });
@@ -421,7 +462,6 @@ export const solicitarRecuperacion = async (req: Request, res: Response, next: N
     const { email } = req.body as { email: string };
     const user = await UsuarioModel.findByEmail(email);
     if (!user) {
-      // 👉 tu requerimiento: email no registrado → 400 Validación fallida
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
         message: "Validación fallida: el email no está registrado."
       });
@@ -447,7 +487,6 @@ export const confirmarRecuperacion = async (req: Request, res: Response, next: N
     const { token, newPassword } = req.body as { token: string; newPassword: string };
     const uid = await SecurityModel.useRecoveryToken(sha256(token));
     if (!uid) {
-      // 👉 token inválido/expirado → 401 Credenciales inválidas
       return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
         message: "Credenciales inválidas: token de recuperación inválido o expirado."
       });
@@ -457,7 +496,6 @@ export const confirmarRecuperacion = async (req: Request, res: Response, next: N
     const row = await pool.query("SELECT password FROM usuarios WHERE id=$1", [uid]);
     const misma = await bcrypt.compare(newPassword, row.rows[0].password);
     if (misma) {
-      // 👉 como pediste
       return sendCode(req, res, AppCode.INVALID_CREDENTIALS, undefined, {
         message: "Credenciales inválidas: la nueva contraseña no puede ser igual a la anterior."
       });
