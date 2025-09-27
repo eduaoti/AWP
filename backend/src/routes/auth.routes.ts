@@ -13,7 +13,7 @@ import { validateBody } from "../middlewares/validate";
 import {
   LoginPasswordSchema,
   LoginTotpSchema,
-  OfflineLoginSchema,       // <- ahora importado desde schemas
+  OfflineLoginSchema,
   OtpSetupStartSchema,
   OtpSetupConfirmSchema,
   RecoveryRequestSchema,
@@ -34,9 +34,9 @@ r.post("/login", validateBody(LoginPasswordSchema), login);
 r.post("/login/otp", validateBody(LoginTotpSchema), verificarOtpLogin);
 r.post("/login/offline", validateBody(OfflineLoginSchema), verificarOtpOffline);
 
-/* ==== Configuración OTP (requiere sesión) ==== */
-r.post("/otp/setup/start", requireAuth, validateBody(OtpSetupStartSchema), iniciarSetupOtp);
-r.post("/otp/setup/confirm", requireAuth, validateBody(OtpSetupConfirmSchema), confirmarSetupOtp);
+/* ==== Configuración OTP (usa preAuth en el body, NO access token) ==== */
+r.post("/otp/setup/start", validateBody(OtpSetupStartSchema), iniciarSetupOtp);
+r.post("/otp/setup/confirm", validateBody(OtpSetupConfirmSchema), confirmarSetupOtp);
 
 /* ==== Recuperación de contraseña ==== */
 r.post("/recovery/request", validateBody(RecoveryRequestSchema), solicitarRecuperacion);

@@ -15,12 +15,13 @@ export function sendCode(
   res: Response,
   code: AppCode,
   data?: any,
-  opts?: { httpStatus?: number; detalle?: any }
+  opts?: { httpStatus?: number; detalle?: any; message?: string }
 ) {
   const http = opts?.httpStatus ?? CodeHttp[code] ?? 200;
   const body: Payload = {
     codigo: code,
-    mensaje: CodeMessage[code] ?? "Resultado",
+    // 👇 si mandas opts.message, se usa; si no, usa el default de CodeMessage
+    mensaje: opts?.message ?? (CodeMessage[code] ?? "Resultado"),
     data,
     detalle: opts?.detalle,
     path: req.originalUrl,
@@ -29,6 +30,6 @@ export function sendCode(
   return res.status(http).json(body);
 }
 
-// Atajos
-export const ok = (req: Request, res: Response, data?: any) =>
-  sendCode(req, res, AppCode.OK, data);
+// Atajo de éxito con mensaje opcional
+export const ok = (req: Request, res: Response, data?: any, message = "OK") =>
+  sendCode(req, res, AppCode.OK, data, { message });

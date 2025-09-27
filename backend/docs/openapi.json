@@ -31,7 +31,7 @@
               },
               "example": {
                 "email": "edu@test.com",
-                "password": "Abcdef12"
+                "password": "Abcdef12!"
               }
             }
           }
@@ -145,8 +145,25 @@
     "/auth/otp/setup/start": {
       "post": {
         "tags": ["Auth"],
-        "summary": "Iniciar configuración de OTP (Google Authenticator)",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Iniciar configuración de OTP (Google Authenticator) con preAuth",
+        "description": "Usa el preAuth devuelto por /auth/login. No requiere Bearer.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth"],
+                "properties": {
+                  "preAuth": { "type": "string", "description": "JWT preAuth de /auth/login" }
+                },
+                "additionalProperties": false
+              },
+              "example": { "preAuth": "eyJhbGciOi..." }
+            }
+          }
+        },
         "responses": {
           "200": { "$ref": "#/components/responses/RespOk_OtpSetupStart" },
           "401": { "$ref": "#/components/responses/RespError" },
@@ -157,22 +174,24 @@
     "/auth/otp/setup/confirm": {
       "post": {
         "tags": ["Auth"],
-        "summary": "Confirmar OTP (guardar secreto + generar backup codes)",
-        "security": [{ "bearerAuth": [] }],
+        "summary": "Confirmar OTP (guardar secreto + generar backup codes) con preAuth",
+        "description": "Usa el preAuth devuelto por /auth/login. No requiere Bearer.",
+        "security": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["secret", "code"],
+                "required": ["preAuth", "secret", "code"],
                 "properties": {
+                  "preAuth": { "type": "string", "description": "JWT preAuth de /auth/login" },
                   "secret": { "type": "string", "minLength": 16, "description": "Secreto base32" },
                   "code": { "type": "string", "minLength": 6, "maxLength": 8 }
                 },
                 "additionalProperties": false
               },
-              "example": { "secret": "JBSWY3DPEHPK3PXP", "code": "123456" }
+              "example": { "preAuth": "eyJhbGciOi...", "secret": "JBSWY3DPEHPK3PXP", "code": "123456" }
             }
           }
         },
@@ -246,7 +265,7 @@
               "example": {
                 "nombre": "Edu Ortiz",
                 "email": "edu@test.com",
-                "password": "Abcdef12",
+                "password": "Abcdef12!",
                 "rol": "editor"
               }
             }
@@ -401,6 +420,7 @@
                 "type": "object",
                 "properties": {
                   "requiresOtp": { "type": "boolean" },
+                  "needsEnrollment": { "type": "boolean", "description": "true si el usuario aún no tiene OTP configurado" },
                   "token": { "type": "string", "nullable": true },
                   "preAuth": { "type": "string", "nullable": true },
                   "offline": { "$ref": "#/components/schemas/OfflineFallback" }
@@ -419,6 +439,7 @@
           "timestamp": "2025-01-01T10:00:00Z",
           "data": {
             "requiresOtp": true,
+            "needsEnrollment": true,
             "preAuth": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
             "offline": {
               "pin": "394812",
