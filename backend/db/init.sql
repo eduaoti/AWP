@@ -172,3 +172,133 @@ CREATE INDEX IF NOT EXISTS idx_otp_requests_expires_at
 -- DELETE FROM otp_requests         WHERE expires_at < NOW() - INTERVAL '1 day';
 
 -- Fin del esquema
+-- ==========================
+-- ==========================
+-- Catálogo de Productos
+-- ==========================
+CREATE TABLE IF NOT EXISTS productos (
+  id              BIGSERIAL PRIMARY KEY,                -- ID_Producto
+  codigo          VARCHAR(60)  NOT NULL UNIQUE,         -- Código (único)
+  nombre          VARCHAR(180) NOT NULL,                -- Nombre
+  descripcion     TEXT,                                 -- Descripción
+  categoria       VARCHAR(120),                         -- Categoría
+  unidad          VARCHAR(40)  NOT NULL,                -- Unidad (pieza, kg, caja, etc.)
+  stock_minimo    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
+  stock_actual    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
+  creado_en       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  actualizado_en  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_productos_nombre    ON productos (nombre);
+CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos (categoria);
+
+-- Función de trigger: siempre la (re)creamos para asegurar consistencia
+CREATE OR REPLACE FUNCTION productos_set_updated_at()
+RETURNS TRIGGER AS $f$
+BEGIN
+  NEW.actualizado_en := NOW();
+  RETURN NEW;
+END;
+$f$ LANGUAGE plpgsql;
+
+-- Trigger: lo creamos solo si no existe
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'trg_productos_updated_at'
+  ) THEN
+    CREATE TRIGGER trg_productos_updated_at
+    BEFORE UPDATE ON productos
+    FOR EACH ROW
+    EXECUTE PROCEDURE productos_set_updated_at();
+  END IF;
+END$$;
+
+-- ==========================
+-- Movimientos de inventario
+-- ==========================
+CREATE TABLE IF NOT EXISTS movimientos (
+  id              BIGSERIAL PRIMARY KEY,                                -- ID_Movimiento
+  fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),                   -- Fecha
+  tipo            VARCHAR(10) NOT NULL CHECK (tipo IN ('entrada','salida')), -- Tipo
+  producto_id     BIGINT     NOT NULL REFERENCES productos(id) ON DELETE RESTRICT,
+  cantidad        NUMERIC(14,2) NOT NULL CHECK (cantidad > 0),          -- Cantidad positiva
+  documento       VARCHAR(120),                                         -- Referencia/Documento
+  responsable     VARCHAR(120)                                          -- Responsable
+);
+
+CREATE INDEX IF NOT EXISTS idx_movimientos_producto_fecha ON movimientos (producto_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_movimientos_tipo_fecha     ON movimientos (tipo, fecha DESC);
+
+-- ==========================
+-- Proveedores
+-- ==========================
+CREATE TABLE IF NOT EXISTS proveedores (
+  id         BIGSERIAL PRIMARY KEY,         -- ID_Proveedor
+  nombre     VARCHAR(160) NOT NULL,
+  telefono   VARCHAR(40),
+  contacto   VARCHAR(120),
+  creado_en  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON proveedores (nombre);
+
+-- ==========================
+-- Relación Movimiento–Proveedor (solo aplica a entradas)
+-- ==========================
+
+-- Columna proveedor_id (nullable): se permite NULL para salidas y entradas sin proveedor.
+ALTER TABLE movimientos
+  ADD COLUMN IF NOT EXISTS proveedor_id BIGINT;
+
+-- FK: si borras un proveedor, los movimientos históricos quedan con proveedor_id NULL.
+-- (Cámbialo a ON DELETE RESTRICT si prefieres impedir el borrado de proveedores con historial)
+DO $$
+BEGIN
+  -- El nombre del constraint puede variar por versión/creación previa; lo normalizamos.
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE table_name = 'movimientos'
+      AND constraint_type = 'FOREIGN KEY'
+      AND constraint_name = 'movimientos_proveedor_id_fkey'
+  ) THEN
+    -- Re-creamos la FK solo si NO tiene la política deseada
+    -- Nota: esto es defensivo; si falla por depender de la política actual, puedes omitir este bloque.
+    BEGIN
+      ALTER TABLE movimientos DROP CONSTRAINT movimientos_proveedor_id_fkey;
+    EXCEPTION WHEN undefined_object THEN
+      -- ya no existe, continuamos
+      NULL;
+    END;
+  END IF;
+
+  -- Creamos (o recreamos) la FK con ON DELETE SET NULL
+  BEGIN
+    ALTER TABLE movimientos
+      ADD CONSTRAINT movimientos_proveedor_id_fkey
+      FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
+      ON DELETE SET NULL;
+  EXCEPTION WHEN duplicate_object THEN
+    -- Ya existe una FK compatible, ignoramos
+    NULL;
+  END;
+END$$;
+
+-- CHECK: asegurar que proveedor_id solo esté informado cuando tipo='entrada'
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE table_name = 'movimientos'
+      AND constraint_type = 'CHECK'
+      AND constraint_name = 'chk_movimientos_proveedor_solo_entradas'
+  ) THEN
+    ALTER TABLE movimientos
+      ADD CONSTRAINT chk_movimientos_proveedor_solo_entradas
+      CHECK (proveedor_id IS NULL OR tipo = 'entrada');
+  END IF;
+END$$;
