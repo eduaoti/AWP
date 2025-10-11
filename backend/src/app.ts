@@ -6,6 +6,9 @@ import usuarios from "./routes/usuarios.routes";
 import auth from "./routes/auth.routes";
 import spec from "../docs/openapi.json";
 import { errorHandler } from "./middlewares/error-handler";
+import productos from "./routes/productos.routes";
+import movimientos from "./routes/movimientos.routes";
+import proveedores from "./routes/proveedores.routes";
 
 /** Augmentamos Request para guardar el body crudo */
 declare global {
@@ -33,6 +36,9 @@ app.get("/health", (_: Request, res: Response) => res.json({ ok: true }));
 app.use("/usuarios", usuarios);
 app.use("/auth", auth);
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(spec));
+app.use("/productos", productos);
+app.use("/movimientos", movimientos);
+app.use("/proveedores", proveedores);
 
 /** Handler específico para JSON inválido (incluye comillas simples) */
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {

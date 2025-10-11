@@ -290,3 +290,15 @@ export const validate =
     }
     return handleErr(parsed.error, req, res, next);
   };
+/** NUEVO: valida el body “plano” (req.body) tal cual, sin envolver en { body: ... } */
+export const validateBodySimple =
+  <T extends ZodTypeAny>(schema: T) =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const parsed = (schema as any).safeParse(req.body);
+    if (parsed.success) {
+      // Sobrescribimos el body con la versión ya parseada/coercida
+      req.body = parsed.data as any;
+      return next();
+    }
+    return handleErr(parsed.error, req, res, next);
+  };
