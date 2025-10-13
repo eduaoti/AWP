@@ -3,7 +3,7 @@
   "info": {
     "title": "AWP MVP API",
     "version": "1.0.0",
-    "description": "API básica para usuarios y auth con validación estricta y respuesta estándar {codigo, mensaje, data}"
+    "description": "API básica para usuarios, auth y catálogo. Respuesta estándar {codigo, mensaje, path, timestamp, data}. Para Productos se admite: (a) rutas por código en path y (b) rutas JSON-only por nombre (sin params en la URL)."
   },
   "tags": [
     { "name": "Auth", "description": "Login y validación OTP" },
@@ -256,6 +256,7 @@
         }
       }
     },
+
     "/usuarios/nuevo": {
       "post": {
         "tags": ["Usuarios"],
@@ -341,6 +342,7 @@
         }
       }
     },
+
     "/productos": {
       "get": {
         "tags": ["Productos"],
@@ -353,6 +355,7 @@
       "post": {
         "tags": ["Productos"],
         "summary": "Crear producto",
+        "description": "Crea un producto. Reglas: categoria y unidad son obligatorias; stock_minimo <= stock_actual.",
         "requestBody": {
           "required": true,
           "content": {
@@ -377,12 +380,13 @@
         }
       }
     },
-    "/productos/{id}": {
+
+    "/productos/codigo/{codigo}": {
       "get": {
         "tags": ["Productos"],
-        "summary": "Obtener producto por id",
+        "summary": "Obtener producto por código",
         "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
+          { "in": "path", "name": "codigo", "required": true, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": { "$ref": "#/components/responses/RespOk_Producto" },
@@ -392,9 +396,9 @@
       },
       "put": {
         "tags": ["Productos"],
-        "summary": "Actualizar producto",
+        "summary": "Actualizar producto por código",
         "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
+          { "in": "path", "name": "codigo", "required": true, "schema": { "type": "string" } }
         ],
         "requestBody": {
           "required": true,
@@ -408,16 +412,37 @@
         "responses": {
           "200": { "$ref": "#/components/responses/RespOk_Producto" },
           "404": { "$ref": "#/components/responses/RespError" },
+          "409": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      },
+      "delete": {
+        "tags": ["Productos"],
+        "summary": "Eliminar producto por código",
+        "parameters": [
+          { "in": "path", "name": "codigo", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiOk_Generic" },
+                "example": { "codigo": 0, "mensaje": "OK", "path": "/productos/codigo/PRD-001", "timestamp": "2025-01-01T10:00:00Z", "data": { "codigo": "PRD-001" } }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/RespError" },
           "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
-    "/productos/{id}/stock-minimo": {
+    "/productos/codigo/{codigo}/stock-minimo": {
       "put": {
         "tags": ["Productos"],
-        "summary": "Actualizar stock mínimo",
+        "summary": "Actualizar stock mínimo por código",
         "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
+          { "in": "path", "name": "codigo", "required": true, "schema": { "type": "string" } }
         ],
         "requestBody": {
           "required": true,
@@ -440,6 +465,98 @@
         }
       }
     },
+
+    "/productos/obtener": {
+      "post": {
+        "tags": ["Productos"],
+        "summary": "Obtener producto por nombre (JSON-only, sin params)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductoIdPorNombre" },
+              "example": { "nombre": "Café molido 500g" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_Producto" },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+    "/productos/actualizar": {
+      "put": {
+        "tags": ["Productos"],
+        "summary": "Actualizar producto por nombre (JSON-only, sin params)",
+        "description": "Debe incluirse el campo 'nombre' para identificar el producto y al menos un campo a actualizar.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductoActualizarPorNombre" },
+              "example": { "nombre": "Café molido 500g", "categoria": "Gourmet", "stock_actual": 30 }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_Producto" },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "409": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+    "/productos/stock-minimo": {
+      "put": {
+        "tags": ["Productos"],
+        "summary": "Actualizar stock mínimo por nombre (JSON-only, sin params)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductoStockMinimoPorNombre" },
+              "example": { "nombre": "Café molido 500g", "stock_minimo": 12 }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/RespOk_Producto" },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+    "/productos/eliminar": {
+      "delete": {
+        "tags": ["Productos"],
+        "summary": "Eliminar producto por nombre (JSON-only, sin params)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductoIdPorNombre" },
+              "example": { "nombre": "Café molido 500g" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiOk_Generic" },
+                "example": { "codigo": 0, "mensaje": "OK", "path": "/productos/eliminar", "timestamp": "2025-01-01T10:00:00Z", "data": { "nombre": "Café molido 500g" } }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
     "/movimientos/entrada": {
       "post": {
         "tags": ["Movimientos"],
@@ -517,6 +634,7 @@
         }
       }
     },
+
     "/proveedores": {
       "get": {
         "tags": ["Proveedores"],
@@ -619,7 +737,7 @@
       },
       "ProductoCrear": {
         "type": "object",
-        "required": ["codigo", "nombre", "unidad"],
+        "required": ["codigo", "nombre", "unidad", "categoria"],
         "properties": {
           "codigo": { "type": "string", "minLength": 1 },
           "nombre": { "type": "string", "minLength": 1 },
@@ -644,6 +762,40 @@
         },
         "additionalProperties": false
       },
+
+    
+      "ProductoIdPorNombre": {
+        "type": "object",
+        "required": ["nombre"],
+        "properties": {
+          "nombre": { "type": "string", "minLength": 2, "maxLength": 120 }
+        },
+        "additionalProperties": false
+      },
+      "ProductoActualizarPorNombre": {
+        "type": "object",
+        "required": ["nombre"],
+        "properties": {
+          "nombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+          "codigo": { "type": "string", "minLength": 1 },
+          "unidad": { "type": "string", "minLength": 1 },
+          "descripcion": { "type": "string" },
+          "categoria": { "type": "string" },
+          "stock_minimo": { "type": "number", "minimum": 0 },
+          "stock_actual": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "ProductoStockMinimoPorNombre": {
+        "type": "object",
+        "required": ["nombre", "stock_minimo"],
+        "properties": {
+          "nombre": { "type": "string", "minLength": 2, "maxLength": 120 },
+          "stock_minimo": { "type": "number", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+
       "Movimiento": {
         "type": "object",
         "properties": {
@@ -685,6 +837,7 @@
         },
         "additionalProperties": false
       },
+
       "ApiBase": {
         "type": "object",
         "required": ["codigo", "mensaje", "path", "timestamp"],
@@ -759,7 +912,7 @@
       "ApiOk_Eliminar": {
         "allOf": [
           { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "object", "properties": { "mensaje": { "type": "string" }, "id": { "type": "integer" } }, "required": ["id"] } }, "required": ["data"] }
+          { "type": "object", "properties": { "data": { "type": "object", "properties": { "mensaje": { "type": "string" } } } }, "required": ["data"] }
         ]
       },
       "ApiOk_OtpSetupStart": {

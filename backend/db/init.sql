@@ -189,10 +189,14 @@ CREATE TABLE IF NOT EXISTS productos (
   actualizado_en  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+-- 🔴 NUEVO: unicidad por nombre (case-insensitive) para operar por nombre desde la API JSON-only
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_productos_nombre_ci
+  ON productos (LOWER(nombre));
+
 CREATE INDEX IF NOT EXISTS idx_productos_nombre    ON productos (nombre);
 CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos (categoria);
 
--- Función de trigger: siempre la (re)creamos para asegurar consistencia
+-- Función de trigger: mantener actualizado 'actualizado_en'
 CREATE OR REPLACE FUNCTION productos_set_updated_at()
 RETURNS TRIGGER AS $f$
 BEGIN
@@ -226,7 +230,8 @@ CREATE TABLE IF NOT EXISTS movimientos (
   producto_id     BIGINT     NOT NULL REFERENCES productos(id) ON DELETE RESTRICT,
   cantidad        NUMERIC(14,2) NOT NULL CHECK (cantidad > 0),          -- Cantidad positiva
   documento       VARCHAR(120),                                         -- Referencia/Documento
-  responsable     VARCHAR(120)                                          -- Responsable
+  responsable     VARCHAR(120),                                         -- Responsable
+  proveedor_id    BIGINT                                                -- (solo entradas; ver CHECK abajo)
 );
 
 CREATE INDEX IF NOT EXISTS idx_movimientos_producto_fecha ON movimientos (producto_id, fecha DESC);
@@ -249,15 +254,10 @@ CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON proveedores (nombre);
 -- Relación Movimiento–Proveedor (solo aplica a entradas)
 -- ==========================
 
--- Columna proveedor_id (nullable): se permite NULL para salidas y entradas sin proveedor.
-ALTER TABLE movimientos
-  ADD COLUMN IF NOT EXISTS proveedor_id BIGINT;
-
 -- FK: si borras un proveedor, los movimientos históricos quedan con proveedor_id NULL.
--- (Cámbialo a ON DELETE RESTRICT si prefieres impedir el borrado de proveedores con historial)
 DO $$
 BEGIN
-  -- El nombre del constraint puede variar por versión/creación previa; lo normalizamos.
+  -- Normalizamos: si existía una FK con otro nombre/política, la recreamos
   IF EXISTS (
     SELECT 1
     FROM information_schema.table_constraints
@@ -265,24 +265,19 @@ BEGIN
       AND constraint_type = 'FOREIGN KEY'
       AND constraint_name = 'movimientos_proveedor_id_fkey'
   ) THEN
-    -- Re-creamos la FK solo si NO tiene la política deseada
-    -- Nota: esto es defensivo; si falla por depender de la política actual, puedes omitir este bloque.
     BEGIN
       ALTER TABLE movimientos DROP CONSTRAINT movimientos_proveedor_id_fkey;
     EXCEPTION WHEN undefined_object THEN
-      -- ya no existe, continuamos
       NULL;
     END;
   END IF;
 
-  -- Creamos (o recreamos) la FK con ON DELETE SET NULL
   BEGIN
     ALTER TABLE movimientos
       ADD CONSTRAINT movimientos_proveedor_id_fkey
       FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
       ON DELETE SET NULL;
   EXCEPTION WHEN duplicate_object THEN
-    -- Ya existe una FK compatible, ignoramos
     NULL;
   END;
 END$$;
