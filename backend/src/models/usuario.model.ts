@@ -1,3 +1,4 @@
+// src/models/usuario.model.ts
 import { pool } from "../db";
 
 export interface Usuario {

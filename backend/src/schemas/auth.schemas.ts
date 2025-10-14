@@ -1,3 +1,4 @@
+// src/schemas/auth.schemas.ts
 import { z } from "zod";
 import { emailStrict } from "./common";
 import { strongPassword } from "./password";

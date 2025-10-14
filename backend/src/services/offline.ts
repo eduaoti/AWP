@@ -1,3 +1,4 @@
+// src/services/offline.ts
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { pool } from "../db";

@@ -171,30 +171,49 @@ CREATE INDEX IF NOT EXISTS idx_otp_requests_expires_at
 -- DELETE FROM recovery_tokens      WHERE expira_en < NOW() - INTERVAL '7 days';
 -- DELETE FROM otp_requests         WHERE expires_at < NOW() - INTERVAL '1 day';
 
--- Fin del esquema
--- ==========================
 -- ==========================
 -- Catálogo de Productos
 -- ==========================
+
+-- 🔁 MIGRACIÓN SEGURA: si existe columna 'codigo' y no existe 'clave', renómbrala
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'productos' AND column_name = 'codigo'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'productos' AND column_name = 'clave'
+  ) THEN
+    ALTER TABLE productos RENAME COLUMN codigo TO clave;
+  END IF;
+END$$;
+
+-- Definición (instalación nueva o ya migrada)
 CREATE TABLE IF NOT EXISTS productos (
   id              BIGSERIAL PRIMARY KEY,                -- ID_Producto
-  codigo          VARCHAR(60)  NOT NULL UNIQUE,         -- Código (único)
+  clave           VARCHAR(60)  NOT NULL UNIQUE,         -- 🔑 Clave (única)
   nombre          VARCHAR(180) NOT NULL,                -- Nombre
   descripcion     TEXT,                                 -- Descripción
   categoria       VARCHAR(120),                         -- Categoría
   unidad          VARCHAR(40)  NOT NULL,                -- Unidad (pieza, kg, caja, etc.)
+  precio          NUMERIC(14,2) NOT NULL DEFAULT 0,     -- 💲 Precio (para estadísticas E11)
   stock_minimo    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
   stock_actual    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
   creado_en       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   actualizado_en  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
--- 🔴 NUEVO: unicidad por nombre (case-insensitive) para operar por nombre desde la API JSON-only
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_productos_nombre_ci
-  ON productos (LOWER(nombre));
+-- (Limpieza de índices antiguos si existen)
+DROP INDEX IF EXISTS uniq_productos_nombre_ci;
+
+-- Índices de producto (nombre normalizado, categoría y precio)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_productos_nombre_norm
+  ON productos ( lower(regexp_replace(nombre, '\s+', ' ', 'g')) );
 
 CREATE INDEX IF NOT EXISTS idx_productos_nombre    ON productos (nombre);
 CREATE INDEX IF NOT EXISTS idx_productos_categoria ON productos (categoria);
+CREATE INDEX IF NOT EXISTS idx_productos_precio    ON productos (precio);
 
 -- Función de trigger: mantener actualizado 'actualizado_en'
 CREATE OR REPLACE FUNCTION productos_set_updated_at()
@@ -231,11 +250,15 @@ CREATE TABLE IF NOT EXISTS movimientos (
   cantidad        NUMERIC(14,2) NOT NULL CHECK (cantidad > 0),          -- Cantidad positiva
   documento       VARCHAR(120),                                         -- Referencia/Documento
   responsable     VARCHAR(120),                                         -- Responsable
-  proveedor_id    BIGINT                                                -- (solo entradas; ver CHECK abajo)
+  proveedor_id    BIGINT,                                               -- (solo entradas; ver CHECK abajo)
+  cliente_id      BIGINT                                                -- (solo salidas; ver CHECK abajo)
 );
 
 CREATE INDEX IF NOT EXISTS idx_movimientos_producto_fecha ON movimientos (producto_id, fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_movimientos_tipo_fecha     ON movimientos (tipo, fecha DESC);
+-- Útiles para reportes/joins
+CREATE INDEX IF NOT EXISTS idx_movimientos_cliente        ON movimientos (cliente_id);
+CREATE INDEX IF NOT EXISTS idx_movimientos_proveedor      ON movimientos (proveedor_id);
 
 -- ==========================
 -- Proveedores
@@ -249,6 +272,26 @@ CREATE TABLE IF NOT EXISTS proveedores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON proveedores (nombre);
+
+-- 🔄 Limpia índice antiguo si existiera
+DROP INDEX IF EXISTS uniq_proveedores_nombre_ci;
+
+-- 🔒 Unicidad por nombre normalizado (case-insensitive + colapso de espacios)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_nombre_norm
+  ON proveedores ( lower(regexp_replace(nombre, '\s+', ' ', 'g')) );
+
+-- 🔒 Unicidad por teléfono “solo dígitos” (parcial; permite NULL o vacío repetido)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_tel_digits
+  ON proveedores ( regexp_replace(coalesce(telefono,''), '\D', '', 'g') )
+  WHERE telefono IS NOT NULL AND telefono <> '';
+
+-- (Opcional) Unicidad estricta combinada
+-- CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_nombre_tel_norm
+--   ON proveedores (
+--     lower(regexp_replace(nombre,  '\s+', ' ', 'g')),
+--     regexp_replace(coalesce(telefono,''), '\D', '', 'g')
+--   )
+--   WHERE telefono IS NOT NULL AND telefono <> '';
 
 -- ==========================
 -- Relación Movimiento–Proveedor (solo aplica a entradas)
@@ -297,3 +340,58 @@ BEGIN
       CHECK (proveedor_id IS NULL OR tipo = 'entrada');
   END IF;
 END$$;
+
+-- ==========================
+-- E10: Clientes + Relación Movimiento–Cliente (solo salidas)
+-- ==========================
+CREATE TABLE IF NOT EXISTS clientes (
+  id         BIGSERIAL PRIMARY KEY,
+  nombre     VARCHAR(160) NOT NULL,
+  telefono   VARCHAR(40),
+  contacto   VARCHAR(120),
+  creado_en  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes (nombre);
+
+-- 🔄 Limpia índice antiguo si existiera
+DROP INDEX IF EXISTS uniq_clientes_nombre_ci;
+
+-- 🔒 Unicidad por nombre normalizado (case-insensitive + colapso de espacios)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_clientes_nombre_norm
+  ON clientes ( lower(regexp_replace(nombre, '\s+', ' ', 'g')) );
+
+-- 🔒 Unicidad por teléfono “solo dígitos” (parcial; permite NULL o vacío repetido)
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_clientes_tel_digits
+  ON clientes ( regexp_replace(coalesce(telefono,''), '\D', '', 'g') )
+  WHERE telefono IS NOT NULL AND telefono <> '';
+
+-- FK y CHECK para cliente_id en movimientos (solo salidas)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name='movimientos' AND constraint_type='FOREIGN KEY'
+      AND constraint_name='movimientos_cliente_id_fkey'
+  ) THEN
+    ALTER TABLE movimientos
+      ADD CONSTRAINT movimientos_cliente_id_fkey
+      FOREIGN KEY (cliente_id) REFERENCES clientes(id)
+      ON DELETE SET NULL;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name='movimientos' AND constraint_type='CHECK'
+      AND constraint_name='chk_movimientos_cliente_solo_salidas'
+  ) THEN
+    ALTER TABLE movimientos
+      ADD CONSTRAINT chk_movimientos_cliente_solo_salidas
+      CHECK (cliente_id IS NULL OR tipo = 'salida');
+  END IF;
+END$$;
+
+-- =========================================
+-- (E11) Índices ya creados para precio/joins; no se requiere más DDL.
+-- (E12) Alertas de stock no requieren DDL (se resuelven por SELECT).
+-- =========================================

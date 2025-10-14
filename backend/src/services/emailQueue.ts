@@ -1,3 +1,4 @@
+// src/services/emailQueue.ts
 import { pool } from "../db";
 import { sendMail } from "./mail";
 

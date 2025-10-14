@@ -1,3 +1,4 @@
+// src/status/codes.ts
 export enum AppCode {
   // 0: ÉXITO
   OK = 0,

@@ -1,3 +1,4 @@
+// src/services/net.ts
 import dns from "node:dns/promises";
 
 // Endpoint que responde 204 muy rápido (usado en Android para captive portal)

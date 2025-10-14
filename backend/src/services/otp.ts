@@ -1,3 +1,4 @@
+// src/services/otp.ts
 import { authenticator } from "otplib";
 import crypto from "crypto";
 import QRCode from "qrcode";
