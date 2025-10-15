@@ -3,7 +3,7 @@
   "info": {
     "title": "AWP MVP API",
     "version": "1.0.0",
-    "description": "API básica para usuarios, auth y catálogo. Respuesta estándar {codigo, mensaje, path, timestamp, data}. Para Productos: rutas JSON-only por nombre o por clave (sin params en la URL)."
+    "description": "API básica para usuarios, auth y catálogo. Respuesta estándar {codigo, mensaje, path, timestamp, data}. Para Productos y Estadísticas: rutas JSON-only (requestBody application/json)."
   },
   "tags": [
     { "name": "Auth", "description": "Login y validación OTP" },
@@ -13,7 +13,7 @@
     { "name": "Movimientos", "description": "Entradas y salidas de inventario" },
     { "name": "Proveedores", "description": "Directorio de proveedores" },
     { "name": "Clientes", "description": "Directorio de clientes" },
-    { "name": "Estadísticas", "description": "Reportes de ventas y alertas" }
+    { "name": "Estadísticas", "description": "Reportes de ventas y alertas (JSON-only)" }
   ],
   "paths": {
     "/auth/login": {
@@ -251,6 +251,7 @@
         }
       }
     },
+
     "/usuarios/nuevo": {
       "post": {
         "operationId": "usuariosCrear",
@@ -333,12 +334,25 @@
 
     "/productos": {
       "get": {
-        "operationId": "productosListar",
+        "deprecated": true,
+        "operationId": "productosListarPaginado_DEPRECATED",
         "tags": ["Productos"],
-        "summary": "Listar productos",
+        "summary": "Listar productos (DEPRECATED, usa POST /productos/listar)",
         "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_ProductoArray" },
-          "default": { "$ref": "#/components/responses/RespError" }
+          "410": {
+            "description": "Deprecated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" },
+                "example": {
+                  "codigo": 4,
+                  "mensaje": "Este endpoint está deprecado. Usa POST /productos/listar con JSON.",
+                  "path": "/productos",
+                  "timestamp": "2025-10-15T00:00:00Z"
+                }
+              }
+            }
+          }
         }
       },
       "post": {
@@ -367,6 +381,63 @@
         "responses": {
           "201": { "$ref": "#/components/responses/RespOk_Producto" },
           "409": { "$ref": "#/components/responses/RespError" },
+          "default": { "$ref": "#/components/responses/RespError" }
+        }
+      }
+    },
+
+    "/productos/listar": {
+      "post": {
+        "operationId": "productosListarJson",
+        "tags": ["Productos"],
+        "summary": "Listar productos (JSON-only, paginado + filtros)",
+        "description": "Parámetros en JSON. Validaciones: page ≥ 1; per_page 1..100 (cap a 100); q 2..120; sort_by ∈ {nombre, precio, stock_actual, creado_en}; sort_dir ∈ {asc, desc}.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ProductoListInput" },
+              "examples": {
+                "minimo": { "summary": "Obligatorios", "value": { "page": 1, "per_page": 20 } },
+                "con_filtros": { "summary": "Con filtros y orden", "value": { "page": 2, "per_page": 50, "q": "café", "sort_by": "precio", "sort_dir": "desc" } },
+                "cap_per_page": { "summary": "Solicita 500 (cap a 100)", "value": { "page": 1, "per_page": 500 } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiOk_ProductoPage" },
+                "example": {
+                  "codigo": 0,
+                  "mensaje": "OK",
+                  "path": "/productos/listar",
+                  "timestamp": "2025-10-15T12:00:00Z",
+                  "data": {
+                    "items": [],
+                    "meta": {
+                      "page": 1,
+                      "per_page": 20,
+                      "total_items": 0,
+                      "total_pages": 0,
+                      "has_prev": false,
+                      "has_next": false,
+                      "sort_by": "nombre",
+                      "sort_dir": "asc",
+                      "query": null,
+                      "caps": { "per_page_capped": null },
+                      "adjustments": { "page_adjusted": null }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/RespError" },
+          "415": { "$ref": "#/components/responses/RespError" },
           "default": { "$ref": "#/components/responses/RespError" }
         }
       }
@@ -572,7 +643,6 @@
         }
       }
     },
-
     "/productos/alertas": {
       "get": {
         "operationId": "productosAlertasStock",
@@ -580,7 +650,7 @@
         "summary": "Listar productos con stock bajo (stock_actual < stock_minimo)",
         "responses": {
           "200": { "$ref": "#/components/responses/RespOk_ProductoArray" },
-        "default": { "$ref": "#/components/responses/RespError" }
+          "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
@@ -746,15 +816,27 @@
     },
 
     "/estadisticas/ventas-producto": {
-      "get": {
+      "post": {
         "operationId": "estadisticasVentasProducto",
         "tags": ["Estadísticas"],
-        "summary": "Total vendido por producto",
-        "description": "Devuelve cuántas unidades se vendieron (salidas) por producto en el rango indicado. Si no se pasa rango, usa todo el histórico.",
-        "parameters": [
-          { "name": "desde", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false },
-          { "name": "hasta", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false }
-        ],
+        "summary": "Total vendido por producto (JSON-only)",
+        "description": "Devuelve cuántas unidades se vendieron (salidas) por producto en el rango indicado (modelo [desde, hasta)). Si no se pasa rango, usa todo el histórico.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time", "description": "ISO-8601, ej. 2025-01-01T00:00:00Z" },
+                  "hasta": { "type": "string", "format": "date-time", "description": "ISO-8601, ej. 2025-02-01T00:00:00Z" }
+                },
+                "additionalProperties": false
+              },
+              "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-02-01T00:00:00Z" }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -773,22 +855,36 @@
               }
             }
           },
+          "400": { "$ref": "#/components/responses/RespError" },
+          "415": { "$ref": "#/components/responses/RespError" },
+          "500": { "$ref": "#/components/responses/RespError" },
           "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
-
     "/estadisticas/productos-menor-venta": {
-      "get": {
+      "post": {
         "operationId": "estadisticasProductosMenorVenta",
         "tags": ["Estadísticas"],
-        "summary": "Productos con menor total vendido",
+        "summary": "Productos con menor total vendido (JSON-only)",
         "description": "Filtra los productos con menor cantidad vendida (salidas) en el rango de fechas.",
-        "parameters": [
-          { "name": "desde", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false },
-          { "name": "hasta", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 10 }, "required": false }
-        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "limite": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-01-31T00:00:00Z", "limite": 10 }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -807,22 +903,36 @@
               }
             }
           },
+          "400": { "$ref": "#/components/responses/RespError" },
+          "415": { "$ref": "#/components/responses/RespError" },
+          "500": { "$ref": "#/components/responses/RespError" },
           "default": { "$ref": "#/components/responses/RespError" }
         }
       }
     },
-
     "/estadisticas/productos-extremos": {
-      "get": {
+      "post": {
         "operationId": "estadisticasProductosExtremos",
         "tags": ["Estadísticas"],
-        "summary": "Entre los más vendidos: más barato y más caro",
-        "description": "Identifica, dentro del conjunto de productos más vendidos, el más barato y el más caro. El precio puede calcularse/estimarse (p. ej., promedio) si está disponible en la implementación.",
-        "parameters": [
-          { "name": "desde", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false },
-          { "name": "hasta", "in": "query", "schema": { "type": "string", "format": "date-time" }, "required": false },
-          { "name": "topN", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 10 }, "required": false }
-        ],
+        "summary": "Entre los más vendidos: más barato y más caro (JSON-only)",
+        "description": "Identifica, dentro del conjunto de productos más vendidos (top N), el más barato y el más caro.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "top": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-02-01T00:00:00Z", "top": 10 }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -850,6 +960,9 @@
               }
             }
           },
+          "400": { "$ref": "#/components/responses/RespError" },
+          "415": { "$ref": "#/components/responses/RespError" },
+          "500": { "$ref": "#/components/responses/RespError" },
           "default": { "$ref": "#/components/responses/RespError" }
         }
       }
@@ -947,6 +1060,77 @@
           "stock_actual": { "type": "number", "minimum": 0 }
         },
         "additionalProperties": false
+      },
+
+      "ProductoListInput": {
+        "type": "object",
+        "required": ["page", "per_page"],
+        "properties": {
+          "page": { "type": "integer", "minimum": 1, "description": "Página (≥1)" },
+          "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "description": "Elementos por página (1..100)" },
+          "q": { "type": "string", "minLength": 2, "maxLength": 120, "description": "Búsqueda por nombre/clave/categoría" },
+          "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"], "default": "nombre" },
+          "sort_dir": { "type": "string", "enum": ["asc", "desc"], "default": "asc" }
+        },
+        "additionalProperties": false
+      },
+
+      "PaginacionMeta": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total_items": { "type": "integer" },
+          "total_pages": { "type": "integer" },
+          "has_prev": { "type": "boolean" },
+          "has_next": { "type": "boolean" },
+          "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
+          "sort_dir": { "type": "string", "enum": ["asc", "desc"] },
+          "query": { "type": "string", "nullable": true },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "per_page_capped": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "type": "object", "properties": { "applied": { "type": "integer" }, "original": { "type": "integer" } }, "required": ["applied", "original"] }
+                ]
+              }
+            }
+          },
+          "adjustments": {
+            "type": "object",
+            "properties": {
+              "page_adjusted": {
+                "oneOf": [
+                  { "type": "null" },
+                  { "type": "object", "properties": { "applied": { "type": "integer" }, "original": { "type": "integer" } }, "required": ["applied", "original"] }
+                ]
+              }
+            }
+          }
+        },
+        "required": ["page", "per_page", "total_items", "total_pages", "has_prev", "has_next", "sort_by", "sort_dir"]
+      },
+
+      "ApiOk_ProductoPage": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ApiBase" },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "object",
+                "properties": {
+                  "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
+                  "meta": { "$ref": "#/components/schemas/PaginacionMeta" }
+                },
+                "required": ["items", "meta"]
+              }
+            },
+            "required": ["data"]
+          }
+        ]
       },
 
       "ProductoIdPorClave": {
@@ -1075,6 +1259,7 @@
         },
         "additionalProperties": false
       },
+
       "ProductoVentaRow": {
         "type": "object",
         "properties": {
@@ -1138,23 +1323,7 @@
             },
             "required": ["data"]
           }
-        ],
-        "example": {
-          "codigo": 0,
-          "mensaje": "OK",
-          "path": "/auth/login",
-          "timestamp": "2025-01-01T10:00:00Z",
-          "data": {
-            "requiresOtp": true,
-            "needsEnrollment": true,
-            "preAuth": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            "offline": {
-              "pin": "394812",
-              "offlineJwt": "eyJhbGciOi...offline...",
-              "expiresAt": "2025-01-01T10:01:00Z"
-            }
-          }
-        }
+        ]
       },
       "ApiOk_UsuarioPublico": {
         "allOf": [

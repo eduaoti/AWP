@@ -1,11 +1,10 @@
-// src/schemas/producto.schemas.ts
 import { z } from "zod";
 import {
   nonEmptyTrimmed, noFlood,
   nonNegativeNoMinusZero, alphaUnidad, alphaCategoria
 } from "./_helpers";
 
-/** Campos base */
+/** Campos base (manteniendo tus helpers) */
 const Nombre = nonEmptyTrimmed(2, 120, "nombre").and(noFlood("nombre"));
 const Descripcion = z.string()
   .default("")
@@ -26,9 +25,9 @@ export const CreateProductoSchema = z.object({
   precio: nonNegativeNoMinusZero("precio").default(0),
   stock_minimo: nonNegativeNoMinusZero("stock_minimo").default(0),
   stock_actual: nonNegativeNoMinusZero("stock_actual").default(0),
-}).superRefine((obj, ctx) => {
+}).strict().superRefine((obj, ctx) => {
   if (obj.stock_minimo > obj.stock_actual) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual", path: ["stock_minimo"] });
   }
 });
 
@@ -42,16 +41,16 @@ export const UpdateProductoSchema = z.object({
   precio: nonNegativeNoMinusZero("precio").optional(),
   stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
   stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
-}).superRefine((obj, ctx) => {
+}).strict().superRefine((obj, ctx) => {
   if (obj.stock_minimo != null && obj.stock_actual != null && obj.stock_minimo > obj.stock_actual) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual", path: ["stock_minimo"] });
   }
 }).refine(o => Object.keys(o).length > 0, { message: "Sin campos para actualizar" });
 
 /** Solo actualizar stock mínimo (compat con rutas por path param) */
 export const UpdateStockMinimoSchema = z.object({
   stock_minimo: nonNegativeNoMinusZero("stock_minimo")
-});
+}).strict();
 
 /* ===========================================================
    ✅ NUEVO: Esquemas para rutas JSON-only que operan POR CLAVE
@@ -64,7 +63,7 @@ export const UpdateStockMinimoSchema = z.object({
 /** Identificar por clave (obtener/eliminar) */
 export const IdPorClaveSchema = z.object({
   clave: Clave
-});
+}).strict();
 
 /** Actualizar por clave (exige al menos 1 campo a actualizar además de la clave) */
 export const UpdatePorClaveSchema = z.object({
@@ -77,10 +76,10 @@ export const UpdatePorClaveSchema = z.object({
   precio: nonNegativeNoMinusZero("precio").optional(),
   stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
   stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
-}).superRefine((obj, ctx) => {
+}).strict().superRefine((obj, ctx) => {
   // Regla stock_minimo <= stock_actual si vienen ambos
   if (obj.stock_minimo != null && obj.stock_actual != null && obj.stock_minimo > obj.stock_actual) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual", path: ["stock_minimo"] });
   }
   // Debe traer al menos un campo actualizable aparte de 'clave'
   const { clave, ...rest } = obj as Record<string, unknown>;
@@ -94,7 +93,7 @@ export const UpdatePorClaveSchema = z.object({
 export const UpdateStockMinimoPorClaveSchema = z.object({
   clave: Clave,
   stock_minimo: nonNegativeNoMinusZero("stock_minimo")
-});
+}).strict();
 
 /* ===========================================================
    ✅ EXISTENTES: Esquemas para rutas JSON-only que operan POR NOMBRE
@@ -107,7 +106,7 @@ export const UpdateStockMinimoPorClaveSchema = z.object({
 /** Identificar por nombre (obtener/eliminar) */
 export const IdPorNombreSchema = z.object({
   nombre: Nombre
-});
+}).strict();
 
 /** Actualizar por nombre (exige al menos 1 campo a actualizar además del nombre)
  *  Aquí sí permitimos opcionalmente cambiar la 'clave'. */
@@ -120,10 +119,10 @@ export const UpdatePorNombreSchema = z.object({
   precio: nonNegativeNoMinusZero("precio").optional(),
   stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
   stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
-}).superRefine((obj, ctx) => {
+}).strict().superRefine((obj, ctx) => {
   // Regla stock_minimo <= stock_actual si vienen ambos
   if (obj.stock_minimo != null && obj.stock_actual != null && obj.stock_minimo > obj.stock_actual) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "stock_minimo → No puede ser mayor que stock_actual", path: ["stock_minimo"] });
   }
   // Debe traer al menos un campo actualizable aparte de 'nombre'
   const { nombre, ...rest } = obj as Record<string, unknown>;
@@ -137,7 +136,27 @@ export const UpdatePorNombreSchema = z.object({
 export const UpdateStockMinimoPorNombreSchema = z.object({
   nombre: Nombre,
   stock_minimo: nonNegativeNoMinusZero("stock_minimo")
-});
+}).strict();
+/* ===========================================================
+   ✅ NUEVO: Listado paginado JSON-only (reutilizable desde routes)
+   =========================================================== */
+export const ProductoListInput = z.object({
+  page: z.coerce.number()
+    .int("page → Debe ser entero")
+    .min(1, "page → Debe ser ≥ 1"),
+  per_page: z.coerce.number()
+    .int("per_page → Debe ser entero")
+    .min(1, "per_page → Debe ser ≥ 1")
+    .max(100, "per_page → Máximo 100"),
+  sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
+  sort_dir: z.enum(["asc", "desc"]).optional(),
+  q: z.string()
+      .trim()
+      .min(2, "q → Debe tener al menos 2 caracteres")
+      .max(120, "q → Máximo 120 caracteres")
+      .optional(),
+}).strict();
+
 
 /** Tipos */
 export type CreateProductoDTO = z.infer<typeof CreateProductoSchema>;
@@ -151,3 +170,5 @@ export type UpdateStockMinimoPorClaveDTO = z.infer<typeof UpdateStockMinimoPorCl
 export type IdPorNombreDTO = z.infer<typeof IdPorNombreSchema>;
 export type UpdatePorNombreDTO = z.infer<typeof UpdatePorNombreSchema>;
 export type UpdateStockMinimoPorNombreDTO = z.infer<typeof UpdateStockMinimoPorNombreSchema>;
+
+export type ProductoListInputDTO = z.infer<typeof ProductoListInput>;

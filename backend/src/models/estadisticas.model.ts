@@ -1,44 +1,100 @@
-// src/models/estadisticas.model.ts
 import { pool } from "../db";
 
 /* ===========================================================
-   Utils de validación/saneo
+   Utils de validación/saneo (estrictas)
    =========================================================== */
+
+const ISO_Z_REGEX =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/; // ISO-8601 con Z (UTC)
 
 function isBlank(v: unknown) {
   return v === null || v === undefined || (typeof v === "string" && v.trim() === "");
 }
 
-/** Acepta string ISO/fecha; devuelve string ISO normalizada o null. */
-function normTsOrNull(v?: string) {
-  if (isBlank(v)) return null;
+/** Normaliza ISO-Z. Devuelve string ISO o undefined si inválida. */
+function normIsoZ(v?: string) {
+  if (isBlank(v)) return undefined;
   const s = String(v).trim();
+  if (!ISO_Z_REGEX.test(s)) return undefined;
   const d = new Date(s);
-  if (isNaN(d.getTime())) return undefined; // inválida
+  if (isNaN(d.getTime())) return undefined;
   return d.toISOString();
 }
 
-/** Valida rango de fechas (inclusive-exclusive) y devuelve tupla [desdeISO|null, hastaISO|null]. */
+/**
+ * Valida rango (modelo [desde, hasta)) y devuelve:
+ * [desdeISO, hastaISO, meta]
+ *
+ * Reglas:
+ * - 'desde' y 'hasta' SON OBLIGATORIOS (no null, no vacíos).
+ * - Formato ISO-Z estricto.
+ * - Futuro NO permitido.
+ * - 'hasta' > 'desde'.
+ * - delta ≥ 1s.
+ * - rango ≤ 366 días.
+ */
 function validarRangoFechas(desde?: string, hasta?: string) {
-  const d = normTsOrNull(desde);
-  const h = normTsOrNull(hasta);
+  // obligatorios
+  if (isBlank(desde)) {
+    const err: any = new Error("desde → Es obligatorio y no puede estar vacío");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde };
+    throw err;
+  }
+  if (isBlank(hasta)) {
+    const err: any = new Error("hasta → Es obligatorio y no puede estar vacío");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { hasta };
+    throw err;
+  }
 
+  const d = normIsoZ(desde);
+  const h = normIsoZ(hasta);
   if (d === undefined) {
-    const err: any = new Error("desde → Fecha inválida: usa ISO-8601 (p. ej. 2025-01-01T00:00:00Z)");
+    const err: any = new Error("desde → Fecha inválida: formato ISO-8601 con Z requerido (ej. 2025-01-01T00:00:00Z)");
     err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde };
     throw err;
   }
   if (h === undefined) {
-    const err: any = new Error("hasta → Fecha inválida: usa ISO-8601 (p. ej. 2025-02-01T00:00:00Z)");
+    const err: any = new Error("hasta → Fecha inválida: formato ISO-8601 con Z requerido (ej. 2025-02-01T00:00:00Z)");
     err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { hasta };
     throw err;
   }
-  if (d && h && d >= h) {
-    const err: any = new Error("Rango de fechas inválido: 'hasta' debe ser mayor que 'desde' (modelo [desde, hasta))");
+
+  const nowIso = new Date().toISOString();
+
+  // futuro NO permitido
+  if (d > nowIso) {
+    const err: any = new Error("Rango inválido: 'desde' no puede ser una fecha futura");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde: d, now: nowIso };
+    throw err;
+  }
+  if (h > nowIso) {
+    const err: any = new Error("Rango inválido: 'hasta' no puede ser una fecha futura");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { hasta: h, now: nowIso };
+    throw err;
+  }
+
+  // orden y tamaño
+  if (h <= d) {
+    const err: any = new Error("Rango inválido: 'hasta' debe ser mayor que 'desde' (modelo [desde, hasta))");
     err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde: d, hasta: h };
     throw err;
   }
-  return [d ?? null, h ?? null] as const;
+
+  const deltaMs = new Date(h).getTime() - new Date(d).getTime();
+  if (deltaMs < 1000) {
+    const err: any = new Error("Rango inválido: la ventana debe ser de al menos 1 segundo");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde: d, hasta: h, deltaMs };
+    throw err;
+  }
+  const dias = deltaMs / (1000 * 60 * 60 * 24);
+  if (dias > 366) {
+    const err: any = new Error("Rango inválido: la ventana no debe exceder 366 días");
+    err.status = 400; err.code = "RANGO_FECHAS_INVALIDO"; err.detail = { desde: d, hasta: h, dias: Math.floor(dias) };
+    throw err;
+  }
+
+  const meta = { rango_aplicado: { desde: d, hasta: h }, ahora_utc: nowIso };
+  return [d, h, meta] as const;
 }
 
 /** Valida un entero positivo con límites. */
@@ -59,7 +115,6 @@ function validarEnteroPositivo(
     throw err;
   }
   if (n > max) {
-    // En lugar de error duro, capamos a max y dejamos traza
     return { value: max, capped: true, original: n };
   }
   return { value: n, capped: false };
@@ -69,13 +124,9 @@ function validarEnteroPositivo(
    Consultas
    =========================================================== */
 
-/**
- * Total vendido (salidas) por producto, orden DESC.
- * - Valida rango de fechas ISO.
- * - Devuelve solo productos con total > 0.
- */
+/** Total vendido (salidas) por producto (DESC). */
 export async function ventasPorProducto(desde?: string, hasta?: string) {
-  const [d, h] = validarRangoFechas(desde, hasta);
+  const [d, h, meta] = validarRangoFechas(desde, hasta);
 
   try {
     const { rows } = await pool.query(
@@ -85,14 +136,14 @@ export async function ventasPorProducto(desde?: string, hasta?: string) {
     LEFT JOIN movimientos m
            ON m.producto_id = p.id
           AND m.tipo = 'salida'
-          AND ($1::timestamptz IS NULL OR m.fecha >= $1)
-          AND ($2::timestamptz IS NULL OR m.fecha <  $2)
+          AND (m.fecha >= $1)
+          AND (m.fecha <  $2)
      GROUP BY p.id, p.clave, p.nombre
        HAVING COALESCE(SUM(m.cantidad),0) > 0
      ORDER BY total_vendido DESC, p.nombre ASC`,
       [d, h]
     );
-    return rows;
+    return { items: rows, meta };
   } catch (e: any) {
     const err: any = new Error("Error de base de datos al calcular ventas por producto");
     err.status = 500; err.code = "DB_ERROR"; err.detail = { pg: { code: e?.code, detail: e?.detail, message: e?.message } };
@@ -100,13 +151,9 @@ export async function ventasPorProducto(desde?: string, hasta?: string) {
   }
 }
 
-/**
- * Productos con menor total vendido (salidas) en el rango.
- * - Valida rango ISO.
- * - 'limite' entero positivo (1..1000). Si sobrepasa, se capa a 1000.
- */
+/** Productos con menor total vendido. */
 export async function productosMenorVenta(desde?: string, hasta?: string, limite: unknown = 10) {
-  const [d, h] = validarRangoFechas(desde, hasta);
+  const [d, h, metaRango] = validarRangoFechas(desde, hasta);
   const lim = validarEnteroPositivo(limite, "limite", { min: 1, max: 1000, defecto: 10 });
 
   try {
@@ -117,16 +164,20 @@ export async function productosMenorVenta(desde?: string, hasta?: string, limite
     LEFT JOIN movimientos m
            ON m.producto_id = p.id
           AND m.tipo = 'salida'
-          AND ($1::timestamptz IS NULL OR m.fecha >= $1)
-          AND ($2::timestamptz IS NULL OR m.fecha <  $2)
+          AND (m.fecha >= $1)
+          AND (m.fecha <  $2)
      GROUP BY p.id, p.clave, p.nombre
      ORDER BY total_vendido ASC, p.nombre ASC
         LIMIT $3`,
       [d, h, lim.value]
     );
 
-    // Si capamos el límite, devolvemos meta para diagnóstico (sin romper compat)
-    return lim.capped ? { items: rows, meta: { limite_aplicado: lim.value, limite_original: lim.original } } : rows;
+    const meta = {
+      ...metaRango,
+      limite: { aplicado: lim.value, original: lim.capped ? lim.original : lim.value, capped: lim.capped },
+    };
+
+    return { items: rows, meta };
   } catch (e: any) {
     const err: any = new Error("Error de base de datos al calcular productos de menor venta");
     err.status = 500; err.code = "DB_ERROR"; err.detail = { pg: { code: e?.code, detail: e?.detail, message: e?.message } };
@@ -134,15 +185,9 @@ export async function productosMenorVenta(desde?: string, hasta?: string, limite
   }
 }
 
-/**
- * Entre los más vendidos (top N), devuelve:
- *  - mas_barato_mas_vendido
- *  - mas_caro_mas_vendido
- * - Valida rango ISO.
- * - 'top' entero positivo (1..1000). Si sobrepasa, se capa a 1000.
- */
+/** Entre los más vendidos (top N): más barato y más caro. */
 export async function productosExtremos(desde?: string, hasta?: string, top: unknown = 10) {
-  const [d, h] = validarRangoFechas(desde, hasta);
+  const [d, h, metaRango] = validarRangoFechas(desde, hasta);
   const t = validarEnteroPositivo(top, "top", { min: 1, max: 1000, defecto: 10 });
 
   try {
@@ -154,8 +199,8 @@ export async function productosExtremos(desde?: string, hasta?: string, top: unk
       LEFT JOIN movimientos m
              ON m.producto_id = p.id
             AND m.tipo = 'salida'
-            AND ($1::timestamptz IS NULL OR m.fecha >= $1)
-            AND ($2::timestamptz IS NULL OR m.fecha <  $2)
+            AND (m.fecha >= $1)
+            AND (m.fecha <  $2)
        GROUP BY p.id, p.clave, p.nombre, p.precio
        ),
        topn AS (
@@ -166,19 +211,23 @@ export async function productosExtremos(desde?: string, hasta?: string, top: unk
        )
        SELECT
          (SELECT row_to_json(t) FROM (
-            SELECT id AS producto_id, clave, nombre, total_vendido, precio
+            SELECT id AS producto_id, clave, nombre, total_vendido, precio AS precio_referencia
               FROM topn ORDER BY precio ASC, nombre ASC LIMIT 1
          ) t) AS mas_barato_mas_vendido,
          (SELECT row_to_json(t) FROM (
-            SELECT id AS producto_id, clave, nombre, total_vendido, precio
+            SELECT id AS producto_id, clave, nombre, total_vendido, precio AS precio_referencia
               FROM topn ORDER BY precio DESC, nombre ASC LIMIT 1
          ) t) AS mas_caro_mas_vendido`,
       [d, h, t.value]
     );
 
     const base = rows[0] ?? { mas_barato_mas_vendido: null, mas_caro_mas_vendido: null };
-    // Adjuntamos meta si capamos top (no rompe contratos existentes porque es opcional)
-    return t.capped ? { ...base, meta: { top_aplicado: t.value, top_original: t.original } } : base;
+    const meta = {
+      ...metaRango,
+      top: { aplicado: t.value, original: t.capped ? t.original : t.value, capped: t.capped },
+    };
+
+    return { ...base, meta };
   } catch (e: any) {
     const err: any = new Error("Error de base de datos al calcular productos extremos");
     err.status = 500; err.code = "DB_ERROR"; err.detail = { pg: { code: e?.code, detail: e?.detail, message: e?.message } };
