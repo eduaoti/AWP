@@ -6,7 +6,7 @@ export interface Usuario {
   nombre: string;
   email: string;
   password: string;
-  rol: "admin" | "editor" | "lector";
+  rol: "admin" | "editor" | "lector" | "jefe_inventario";
   creado_en: Date;
 }
 
@@ -77,5 +77,13 @@ export const UsuarioModel = {
     const sql = `SELECT id, email, otp_enabled, otp_secret FROM usuarios WHERE email=$1`;
     const { rows } = await pool.query(sql, [email]);
     return rows[0];
+  },
+
+  /** 📬 Email del jefe de inventario (si existe) */
+  async findInventoryChiefEmail(): Promise<string | null> {
+    const { rows } = await pool.query(
+      `SELECT email FROM usuarios WHERE rol = 'jefe_inventario' ORDER BY id ASC LIMIT 1`
+    );
+    return rows[0]?.email ?? null;
   },
 };

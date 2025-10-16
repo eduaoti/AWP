@@ -1,3 +1,4 @@
+// src/routes/productos.routes.ts
 import { Router } from "express";
 import { z } from "zod";
 import {
@@ -15,6 +16,7 @@ import { requireJson } from "../middlewares/require-json";
 import * as Productos from "../models/producto.model";
 import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
+import { enqueueLowStockAlertToChief } from "../services/emailQueue";
 
 const r = Router();
 
@@ -51,7 +53,7 @@ r.put(
   validateBodySimple(UpdateProductoSchema),
   async (req, res, next) => {
     try {
-      const { codigo } = req.params;
+      const { codigo } = req.params as { codigo: string };
       const actualizado = await Productos.actualizarPorCodigo(codigo, req.body);
       if (!actualizado) {
         return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
@@ -75,7 +77,7 @@ r.put(
 /** DELETE /productos/codigo/:codigo  (eliminar por código - compat) */
 r.delete("/codigo/:codigo", async (req, res, next) => {
   try {
-    const { codigo } = req.params;
+    const { codigo } = req.params as { codigo: string };
     const eliminado = await Productos.eliminarPorCodigo(codigo);
     if (!eliminado) {
       return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
@@ -159,7 +161,7 @@ r.put(
   validateBodySimple(UpdatePorClaveSchema),
   async (req, res, next) => {
     try {
-      const { clave, ...data } = req.body;
+      const { clave, ...data } = req.body as { clave: string } & Record<string, unknown>;
       const actualizado = await Productos.actualizarPorClave(clave, data);
       if (!actualizado) {
         return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
@@ -233,7 +235,7 @@ r.put(
   validateBodySimple(UpdatePorNombreSchema),
   async (req, res, next) => {
     try {
-      const { nombre, ...data } = req.body;
+      const { nombre, ...data } = req.body as { nombre: string } & Record<string, unknown>;
       const actualizado = await Productos.actualizarPorNombre(nombre, data);
       if (!actualizado) {
         return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
@@ -295,5 +297,37 @@ r.delete(
     }
   }
 );
+
+/* ===========================================================
+   🚨 NUEVO (DEV): GET /productos/alertas
+   - Lista productos con stock_actual < stock_minimo
+   - Encola correo a 'jefe_inventario' con el resumen
+   - Devuelve data (items y resultado de notificación)
+   =========================================================== */
+r.get("/alertas", async (_req, res, next) => {
+  try {
+    const items = await Productos.listarProductosBajoStock(); // ya ordena por faltante DESC
+    // Encola correo solo si hay algo que alertar
+    let notify: { to: string | null; enqueued: boolean; count: number } = {
+      to: null,
+      enqueued: false,
+      count: items.length,
+    };
+
+    if (items.length > 0) {
+      notify = await enqueueLowStockAlertToChief(items);
+    }
+
+    return sendCode(
+      _req,
+      res,
+      AppCode.OK,
+      { items, notify },
+      { httpStatus: 200, message: items.length ? "OK" : "Sin alertas" }
+    );
+  } catch (e) {
+    next(e);
+  }
+});
 
 export default r;

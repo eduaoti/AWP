@@ -11,9 +11,35 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nombre   VARCHAR(120) NOT NULL,
   email    VARCHAR(180) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  rol      VARCHAR(20)  NOT NULL CHECK (rol IN ('admin','editor','lector')),
+  -- ⬇️ ACTUALIZADO: incluye 'jefe_inventario'
+  rol      VARCHAR(20)  NOT NULL CHECK (rol IN ('admin','editor','lector','jefe_inventario')),
   creado_en TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ⬇️ MIGRACIÓN SEGURA: si la tabla ya existía con el CHECK viejo, lo reemplazamos.
+DO $$
+DECLARE
+  chk_name text;
+BEGIN
+  SELECT conname INTO chk_name
+  FROM pg_constraint
+  WHERE conrelid = 'usuarios'::regclass
+    AND contype  = 'c'            -- check
+    AND pg_get_constraintdef(oid) ILIKE '%rol IN (%';
+
+  IF chk_name IS NOT NULL THEN
+    -- Volamos el CHECK previo (cualquiera que sea su nombre) y creamos el nuevo
+    EXECUTE format('ALTER TABLE usuarios DROP CONSTRAINT %I', chk_name);
+    EXECUTE $sql$
+      ALTER TABLE usuarios
+      ADD CONSTRAINT usuarios_rol_check
+      CHECK (rol IN ('admin','editor','lector','jefe_inventario'))
+    $sql$;
+  END IF;
+END$$;
+
+-- Índice útil para búsquedas por rol (ej. jefe de inventario)
+CREATE INDEX IF NOT EXISTS idx_usuarios_rol ON usuarios (rol);
 
 -- Campos OTP en usuarios
 ALTER TABLE usuarios

@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AWP MVP API",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}."
   },
   "tags": [
@@ -47,16 +47,20 @@
         "summary": "Verificar OTP (paso 2)",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["preAuth", "code"],
-            "properties": {
-              "preAuth": { "type": "string" },
-              "code": { "type": "string", "minLength": 6, "maxLength": 8 },
-              "deviceId": { "type": "string" }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth", "code"],
+                "properties": {
+                  "preAuth": { "type": "string" },
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 },
+                  "deviceId": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -68,19 +72,165 @@
         "summary": "Canjear PIN offline (paso 2 alterno)",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["preAuth", "offlineJwt", "pin"],
-            "properties": {
-              "preAuth": { "type": "string" },
-              "offlineJwt": { "type": "string" },
-              "pin": { "type": "string", "minLength": 4, "maxLength": 10 },
-              "deviceId": { "type": "string" }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth", "offlineJwt", "pin"],
+                "properties": {
+                  "preAuth": { "type": "string" },
+                  "offlineJwt": { "type": "string" },
+                  "pin": { "type": "string", "minLength": 4, "maxLength": 10 },
+                  "deviceId": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+
+    "/auth/otp/setup/start": {
+      "post": {
+        "operationId": "otpSetupStart",
+        "tags": ["Auth"],
+        "summary": "Iniciar configuración de OTP (usa preAuth en body)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth"],
+                "properties": {
+                  "preAuth": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+    "/auth/otp/setup/confirm": {
+      "post": {
+        "operationId": "otpSetupConfirm",
+        "tags": ["Auth"],
+        "summary": "Confirmar configuración de OTP (usa preAuth en body)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["preAuth", "code"],
+                "properties": {
+                  "preAuth": { "type": "string" },
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+
+    "/auth/recovery/request": {
+      "post": {
+        "operationId": "recoveryRequest",
+        "tags": ["Recovery"],
+        "summary": "Solicitar recuperación de contraseña",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+    "/auth/recovery/confirm": {
+      "post": {
+        "operationId": "recoveryConfirm",
+        "tags": ["Recovery"],
+        "summary": "Confirmar recuperación de contraseña",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token", "newPassword"],
+                "properties": {
+                  "token": { "type": "string" },
+                  "newPassword": { "type": "string", "minLength": 8 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+
+    "/auth/sessions": {
+      "get": {
+        "operationId": "authListSessions",
+        "tags": ["Auth"],
+        "summary": "Listar mis sesiones (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_SessionsList" } }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "authLogout",
+        "tags": ["Auth"],
+        "summary": "Cerrar sesión actual (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Logout" } }
+      }
+    },
+    "/auth/sessions/revoke": {
+      "post": {
+        "operationId": "authRevokeSession",
+        "tags": ["Auth"],
+        "summary": "Revocar una sesión por jti (requireAuth)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["jti"],
+                "properties": { "jti": { "type": "string", "format": "uuid" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Revoke" } }
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "operationId": "authLogoutAll",
+        "tags": ["Auth"],
+        "summary": "Cerrar todas mis sesiones (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_LogoutAll" } }
       }
     },
 
@@ -91,17 +241,21 @@
         "summary": "Crear usuario",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["nombre", "email", "password", "rol"],
-            "properties": {
-              "nombre": { "type": "string" },
-              "email": { "type": "string", "format": "email" },
-              "password": { "type": "string", "minLength": 8 },
-              "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre", "email", "password", "rol"],
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -113,17 +267,21 @@
         "summary": "Actualizar usuario",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["id", "nombre", "email", "rol"],
-            "properties": {
-              "id": { "type": "integer" },
-              "nombre": { "type": "string" },
-              "email": { "type": "string", "format": "email" },
-              "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "nombre", "email", "rol"],
+                "properties": {
+                  "id": { "type": "integer" },
+                  "nombre": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -135,12 +293,16 @@
         "summary": "Eliminar usuario",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["id"],
-            "properties": { "id": { "type": "integer" } },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "properties": { "id": { "type": "integer" } },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -161,26 +323,29 @@
         "summary": "Crear producto",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["clave", "nombre", "unidad", "categoria"],
-            "properties": {
-              "clave": { "type": "string" },
-              "nombre": { "type": "string" },
-              "unidad": { "type": "string" },
-              "descripcion": { "type": "string" },
-              "categoria": { "type": "string" },
-              "precio": { "type": "number" },
-              "stock_minimo": { "type": "number" },
-              "stock_actual": { "type": "number" }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["clave", "nombre", "unidad", "categoria"],
+                "properties": {
+                  "clave": { "type": "string" },
+                  "nombre": { "type": "string" },
+                  "unidad": { "type": "string" },
+                  "descripcion": { "type": "string" },
+                  "categoria": { "type": "string" },
+                  "precio": { "type": "number" },
+                  "stock_minimo": { "type": "number" },
+                  "stock_actual": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/productos/listar": {
       "post": {
         "operationId": "productosListarPostJson",
@@ -189,44 +354,54 @@
         "description": "Si clave==\"\" no filtra por clave; si nombre==\"\" no filtra por nombre; si ambos \"\", lista todos. Coincidencia exacta case-insensitive para clave y nombre.",
         "requestBody": {
           "required": false,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "clave": { "type": "string" },
-              "nombre": { "type": "string" },
-              "page": { "type": "integer", "minimum": 1, "default": 1 },
-              "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
-              "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
-              "sort_dir": { "type": "string", "enum": ["asc", "desc"] }
-            },
-            "additionalProperties": false
-          },
-          "example": { "clave": "", "nombre": "", "page": 1, "per_page": 20, "sort_by": "nombre", "sort_dir": "asc" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": { "type": "string" },
+                  "nombre": { "type": "string" },
+                  "page": { "type": "integer", "minimum": 1, "default": 1 },
+                  "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+                  "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
+                  "sort_dir": { "type": "string", "enum": ["asc", "desc"] }
+                },
+                "additionalProperties": false
+              },
+              "example": { "clave": "", "nombre": "", "page": 1, "per_page": 20, "sort_by": "nombre", "sort_dir": "asc" }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosList" } }
       }
     },
-
     "/productos/clave/actualizar": {
       "put": {
         "operationId": "productoActualizarPorClaveJson",
         "tags": ["Productos"],
         "summary": "Actualizar por clave (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["clave"],
-          "properties": {
-            "clave": { "type": "string" },
-            "nombre": { "type": "string" },
-            "unidad": { "type": "string" },
-            "descripcion": { "type": "string" },
-            "categoria": { "type": "string" },
-            "precio": { "type": "number" },
-            "stock_minimo": { "type": "number" },
-            "stock_actual": { "type": "number" }
-          },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["clave"],
+                "properties": {
+                  "clave": { "type": "string" },
+                  "nombre": { "type": "string" },
+                  "unidad": { "type": "string" },
+                  "descripcion": { "type": "string" },
+                  "categoria": { "type": "string" },
+                  "precio": { "type": "number" },
+                  "stock_minimo": { "type": "number" },
+                  "stock_actual": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
@@ -235,12 +410,22 @@
         "operationId": "productoStockMinimoPorClaveJson",
         "tags": ["Productos"],
         "summary": "Actualizar stock mínimo por clave (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["clave", "stock_minimo"],
-          "properties": { "clave": { "type": "string" }, "stock_minimo": { "type": "number", "minimum": 0 } },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["clave", "stock_minimo"],
+                "properties": {
+                  "clave": { "type": "string" },
+                  "stock_minimo": { "type": "number", "minimum": 0 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
@@ -249,36 +434,49 @@
         "operationId": "productoEliminarPorClaveJson",
         "tags": ["Productos"],
         "summary": "Eliminar por clave (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["clave"],
-          "properties": { "clave": { "type": "string" } },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["clave"],
+                "properties": { "clave": { "type": "string" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/productos/actualizar": {
       "put": {
         "operationId": "productoActualizarPorNombreJson",
         "tags": ["Productos"],
         "summary": "Actualizar por nombre (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["nombre"],
-          "properties": {
-            "nombre": { "type": "string" },
-            "clave": { "type": "string" },
-            "unidad": { "type": "string" },
-            "descripcion": { "type": "string" },
-            "categoria": { "type": "string" },
-            "precio": { "type": "number" },
-            "stock_minimo": { "type": "number" },
-            "stock_actual": { "type": "number" }
-          },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "clave": { "type": "string" },
+                  "unidad": { "type": "string" },
+                  "descripcion": { "type": "string" },
+                  "categoria": { "type": "string" },
+                  "precio": { "type": "number" },
+                  "stock_minimo": { "type": "number" },
+                  "stock_actual": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
@@ -287,12 +485,22 @@
         "operationId": "productoStockMinimoPorNombreJson",
         "tags": ["Productos"],
         "summary": "Actualizar stock mínimo por nombre (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["nombre", "stock_minimo"],
-          "properties": { "nombre": { "type": "string" }, "stock_minimo": { "type": "number", "minimum": 0 } },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre", "stock_minimo"],
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "stock_minimo": { "type": "number", "minimum": 0 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
@@ -301,13 +509,30 @@
         "operationId": "productoEliminarPorNombreJson",
         "tags": ["Productos"],
         "summary": "Eliminar por nombre (JSON-only)",
-        "requestBody": { "required": true, "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["nombre"],
-          "properties": { "nombre": { "type": "string" } },
-          "additionalProperties": false
-        } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": { "nombre": { "type": "string" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+
+    "/productos/alertas": {
+      "get": {
+        "operationId": "productosAlertas",
+        "tags": ["Productos"],
+        "summary": "[DEV] Alertas de stock (Stock_Actual < Stock_Mínimo)",
+        "description": "Devuelve productos con stock_actual < stock_minimo y encola notificación por correo al usuario con rol 'jefe_inventario' (si existe).",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosAlertas" } }
       }
     },
 
@@ -318,19 +543,23 @@
         "summary": "Registrar entrada (JSON-only)",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["producto_id", "cantidad"],
-            "properties": {
-              "producto_id": { "type": "integer", "minimum": 1 },
-              "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-              "documento": { "type": "string" },
-              "responsable": { "type": "string" },
-              "fecha": { "type": "string", "format": "date-time" },
-              "proveedor_id": { "type": "integer", "minimum": 1 }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["producto_id", "cantidad"],
+                "properties": {
+                  "producto_id": { "type": "integer", "minimum": 1 },
+                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
+                  "documento": { "type": "string" },
+                  "responsable": { "type": "string" },
+                  "fecha": { "type": "string", "format": "date-time" },
+                  "proveedor_id": { "type": "integer", "minimum": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -342,19 +571,23 @@
         "summary": "Registrar salida (JSON-only)",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["producto_id", "cantidad", "cliente_id"],
-            "properties": {
-              "producto_id": { "type": "integer", "minimum": 1 },
-              "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-              "documento": { "type": "string" },
-              "responsable": { "type": "string" },
-              "fecha": { "type": "string", "format": "date-time" },
-              "cliente_id": { "type": "integer", "minimum": 1 }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["producto_id", "cantidad", "cliente_id"],
+                "properties": {
+                  "producto_id": { "type": "integer", "minimum": 1 },
+                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
+                  "documento": { "type": "string" },
+                  "responsable": { "type": "string" },
+                  "fecha": { "type": "string", "format": "date-time" },
+                  "cliente_id": { "type": "integer", "minimum": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -373,16 +606,20 @@
         "summary": "Crear proveedor",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["nombre"],
-            "properties": {
-              "nombre": { "type": "string" },
-              "telefono": { "type": "string" },
-              "contacto": { "type": "string" }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "telefono": { "type": "string" },
+                  "contacto": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -401,16 +638,20 @@
         "summary": "Crear cliente",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "required": ["nombre"],
-            "properties": {
-              "nombre": { "type": "string" },
-              "telefono": { "type": "string" },
-              "contacto": { "type": "string" }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string" },
+                  "telefono": { "type": "string" },
+                  "contacto": { "type": "string" }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
@@ -423,15 +664,19 @@
         "summary": "Ventas por producto (JSON-only)",
         "requestBody": {
           "required": false,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "desde": { "type": "string", "format": "date-time" },
-              "hasta": { "type": "string", "format": "date-time" }
-            },
-            "additionalProperties": false
-          },
-          "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-02-01T00:00:00Z" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" }
+                },
+                "additionalProperties": false
+              },
+              "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-02-01T00:00:00Z" }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_VentasProducto" } }
       }
@@ -443,15 +688,19 @@
         "summary": "Productos de menor venta (JSON-only)",
         "requestBody": {
           "required": false,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "desde": { "type": "string", "format": "date-time" },
-              "hasta": { "type": "string", "format": "date-time" },
-              "limite": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "limite": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_MenorVenta" } }
       }
@@ -463,15 +712,19 @@
         "summary": "Más barato y más caro dentro del top N (JSON-only)",
         "requestBody": {
           "required": false,
-          "content": { "application/json": { "schema": {
-            "type": "object",
-            "properties": {
-              "desde": { "type": "string", "format": "date-time" },
-              "hasta": { "type": "string", "format": "date-time" },
-              "top": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
-            },
-            "additionalProperties": false
-          } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "top": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_Extremos" } }
       }
@@ -559,135 +812,340 @@
           "precio_referencia": { "type": "number", "nullable": true }
         },
         "required": ["producto_id", "clave", "nombre", "total_vendido"]
+      },
+      "Sesion": {
+        "type": "object",
+        "properties": {
+          "jti": { "type": "string", "format": "uuid" },
+          "ip": { "type": "string" },
+          "user_agent": { "type": "string" },
+          "creado_en": { "type": "string", "format": "date-time" },
+          "ultimo_uso": { "type": "string", "format": "date-time" },
+          "actual": { "type": "boolean" }
+        }
+      },
+      "ProductosAlertasNotify": {
+        "type": "object",
+        "properties": {
+          "to": { "type": "string", "nullable": true, "description": "Correo del jefe de inventario o null si no existe" },
+          "enqueued": { "type": "boolean", "description": "Si se encoló el correo" },
+          "count": { "type": "integer", "description": "Cantidad de productos en alerta" }
+        },
+        "required": ["enqueued", "count"]
       }
     },
     "responses": {
       "Resp200_Min": {
         "description": "Respuesta mínima (escritura). Siempre HTTP 200.",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" }
-          },
-          "additionalProperties": false
-        }, "example": { "codigo": 0, "mensaje": "OK" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK" }
+          }
+        }
       },
-
       "Resp200_UsuariosList": {
         "description": "Listar usuarios (trae data)",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/UsuarioPublico" } } }, "required": ["items"] }
-          },
-          "additionalProperties": false
-        } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/UsuarioPublico" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-
       "Resp200_ProductosList": {
         "description": "Listar productos (trae data)",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": {
+        "content": {
+          "application/json": {
+            "schema": {
               "type": "object",
+              "required": ["codigo", "mensaje", "data"],
               "properties": {
-                "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
-                "meta": { "$ref": "#/components/schemas/PaginacionMeta" }
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
+                    "meta": { "$ref": "#/components/schemas/PaginacionMeta" }
+                  },
+                  "required": ["items", "meta"]
+                }
               },
-              "required": ["items", "meta"]
+              "additionalProperties": false
             }
-          },
-          "additionalProperties": false
-        } } }
+          }
+        }
       },
-
       "Resp200_ProveedoresList": {
         "description": "Listar proveedores (trae data)",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Proveedor" } } }, "required": ["items"] }
-          },
-          "additionalProperties": false
-        } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Proveedor" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-
       "Resp200_ClientesList": {
         "description": "Listar clientes (trae data)",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Cliente" } } }, "required": ["items"] }
-          },
-          "additionalProperties": false
-        } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Cliente" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-
       "Resp200_Estad_VentasProducto": {
         "description": "Reporte: ventas por producto",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": { "type": "object", "properties": {
-              "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
-            }, "required": ["items"] }
-          },
-          "additionalProperties": false
-        } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-
       "Resp200_Estad_MenorVenta": {
         "description": "Reporte: productos de menor venta",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": { "type": "object", "properties": {
-              "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
-            }, "required": ["items"] }
-          },
-          "additionalProperties": false
-        } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-
       "Resp200_Estad_Extremos": {
         "description": "Reporte: más barato y más caro dentro del top N",
-        "content": { "application/json": { "schema": {
-          "type": "object",
-          "required": ["codigo", "mensaje", "data"],
-          "properties": {
-            "codigo": { "type": "integer" },
-            "mensaje": { "type": "string" },
-            "data": {
+        "content": {
+          "application/json": {
+            "schema": {
               "type": "object",
+              "required": ["codigo", "mensaje", "data"],
               "properties": {
-                "mas_barato_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" },
-                "mas_caro_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" }
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "mas_barato_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" },
+                    "mas_caro_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Resp200_SessionsList": {
+        "description": "Listar sesiones activas del usuario",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Sesion" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Resp200_Logout": {
+        "description": "Cerrar sesión actual",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "revoked": { "type": "boolean" } },
+                  "required": ["revoked"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK", "data": { "revoked": true } }
+          }
+        }
+      },
+      "Resp200_Revoke": {
+        "description": "Revocar sesión por jti",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "jti": { "type": "string", "format": "uuid" } },
+                  "required": ["jti"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Resp200_LogoutAll": {
+        "description": "Cerrar todas las sesiones del usuario",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "all": { "type": "boolean" } },
+                  "required": ["all"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK", "data": { "all": true } }
+          }
+        }
+      },
+      "Resp200_ProductosAlertas": {
+        "description": "Alertas de stock: lista de productos con stock_actual < stock_minimo y estado de notificación",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
+                    "notify": { "$ref": "#/components/schemas/ProductosAlertasNotify" }
+                  },
+                  "required": ["items", "notify"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "codigo": 0,
+              "mensaje": "OK",
+              "data": {
+                "items": [
+                  {
+                    "id": 12,
+                    "clave": "SKU-001",
+                    "nombre": "Guantes",
+                    "unidad": "pieza",
+                    "categoria": "EPP",
+                    "precio": 45.5,
+                    "stock_minimo": 10,
+                    "stock_actual": 2,
+                    "creado_en": "2025-01-10T18:20:00Z",
+                    "actualizado_en": "2025-02-15T12:01:00Z"
+                  }
+                ],
+                "notify": { "to": "jefe@empresa.com", "enqueued": true, "count": 1 }
               }
             }
-          },
-          "additionalProperties": false
-        } } }
+          }
+        }
       }
     }
   }
