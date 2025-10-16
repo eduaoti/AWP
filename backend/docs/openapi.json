@@ -126,10 +126,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["preAuth", "code"],
+                "required": ["preAuth", "code", "secret"],
                 "properties": {
                   "preAuth": { "type": "string" },
-                  "code": { "type": "string", "minLength": 6, "maxLength": 8 }
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 },
+                  "secret": { "type": "string" }
                 },
                 "additionalProperties": false
               }
