@@ -1,35 +1,57 @@
 // src/routes/proveedores.routes.ts
 import { Router } from "express";
 import { validateBodySimple } from "../middlewares/validate";
+import { requireJson } from "../middlewares/require-json";
 import { CreateProveedorSchema } from "../schemas/proveedor.schemas";
 import { crearProveedor, listarProveedores } from "../models/proveedor.model";
-import { ok, sendCode } from "../status/respond";
+import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
 
 const r = Router();
 
-/** GET /proveedores  (paginado básico y defensivo) */
+/** GET /proveedores  (listar con data + meta) */
 r.get("/", async (req, res, next) => {
   try {
     const limitQ = Number(req.query.limit ?? 100);
     const offsetQ = Number(req.query.offset ?? 0);
+
     const limit = Number.isFinite(limitQ) && limitQ > 0 ? Math.min(limitQ, 500) : 100;
     const offset = Number.isFinite(offsetQ) && offsetQ >= 0 ? offsetQ : 0;
 
-    const data = await listarProveedores(limit, offset);
-    return ok(req, res, data);
+    const raw = await listarProveedores(limit, offset);
+
+    // Soporta retorno como array o como {items, meta}
+    const data =
+      raw && typeof raw === "object" && "items" in (raw as any) && "meta" in (raw as any)
+        ? raw
+        : Array.isArray(raw)
+        ? {
+            items: raw,
+            meta: {
+              limit,
+              offset,
+              count: raw.length,
+            },
+          }
+        : {
+            items: [],
+            meta: { limit, offset, count: 0 },
+          };
+
+    return sendCode(req, res, AppCode.OK, data, { message: "OK" });
   } catch (e) {
     next(e);
   }
 });
 
 /** POST /proveedores  (alta con validaciones y manejo de duplicados) */
-r.post("/", validateBodySimple(CreateProveedorSchema), async (req, res, next) => {
+r.post("/", requireJson, validateBodySimple(CreateProveedorSchema), async (req, res, next) => {
   try {
-    const prov = await crearProveedor(req.body);
-    return sendCode(req, res, AppCode.OK, prov, { httpStatus: 201, message: "OK" });
+    await crearProveedor(req.body);
+    // Creado → 201, respuesta minimalista (sin data)
+    return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 201, message: "OK" });
   } catch (e: any) {
-    // Choques de unicidad (del precheck del modelo o del índice único en DB)
+    // Choques de unicidad (precheck o índice único en DB)
     const constraint: string | undefined = e?.constraint;
     const isUnique =
       e?.code === "23505" ||
@@ -41,23 +63,20 @@ r.post("/", validateBodySimple(CreateProveedorSchema), async (req, res, next) =>
 
     if (isUnique) {
       let msg = e?.message || "El proveedor ya existe (mismo nombre/teléfono).";
-      // Mensajes más claros según constraint
-      if (constraint === "uniq_proveedores_nombre_norm") {
-        msg = "Nombre de proveedor ya registrado (case-insensitive + colapso de espacios).";
-      } else if (constraint === "uniq_proveedores_tel_digits") {
-        msg = "Teléfono ya registrado (se comparan solo dígitos; evita 477-555-1234 / (477)5551234).";
-      }
+      if (constraint === "uniq_proveedores_nombre_norm") msg = "Nombre de proveedor ya registrado.";
+      else if (constraint === "uniq_proveedores_tel_digits") msg = "Teléfono ya registrado.";
+
       return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
+        httpStatus: 409,
         message: msg,
-        detalle: { constraint }
       });
     }
 
     // Violaciones de CHECK/otras validaciones a nivel DB
     if (e?.code === "23514") {
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+        httpStatus: 400,
         message: "Proveedor inválido: no cumple restricciones de base de datos.",
-        detalle: { constraint: e?.constraint }
       });
     }
 
@@ -69,16 +88,15 @@ r.post("/", validateBodySimple(CreateProveedorSchema), async (req, res, next) =>
         AppCode.DB_ERROR;
 
       return sendCode(req, res, code, undefined, {
-        message: e.message,
         httpStatus: e.status,
-        detalle: e.detail ?? e
+        message: e.message,
       });
     }
 
-    // Fallback con detalle para diagnosticar
+    // Fallback
     return sendCode(req, res, AppCode.DB_ERROR, undefined, {
+      httpStatus: 500,
       message: "Error de base de datos al crear proveedor.",
-      detalle: { raw: String(e), ...(e || {}) }
     });
   }
 });

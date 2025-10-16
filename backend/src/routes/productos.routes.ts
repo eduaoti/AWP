@@ -1,33 +1,22 @@
 import { Router } from "express";
+import { z } from "zod";
 import {
   CreateProductoSchema,
   UpdateProductoSchema,
-  UpdateStockMinimoSchema,
   // JSON-only POR CLAVE
-  IdPorClaveSchema,
   UpdatePorClaveSchema,
   UpdateStockMinimoPorClaveSchema,
   // JSON-only POR NOMBRE
-  IdPorNombreSchema,
   UpdatePorNombreSchema,
   UpdateStockMinimoPorNombreSchema,
-  // Listado JSON-only
-  ProductoListInput,
 } from "../schemas/producto.schemas";
 import { validateBodySimple } from "../middlewares/validate";
 import { requireJson } from "../middlewares/require-json";
 import * as Productos from "../models/producto.model";
+import { sendCode } from "../status/respond";
+import { AppCode } from "../status/codes";
 
 const r = Router();
-
-/* ===========================================================
-   Respuesta estándar
-   =========================================================== */
-const stamp = () => new Date().toISOString();
-const ok = (path: string, data: any) =>
-  ({ codigo: 0, mensaje: "OK", path, timestamp: stamp(), data });
-const err = (codigo: number, path: string, mensaje: string, detalle?: any) =>
-  ({ codigo, mensaje, path, timestamp: stamp(), detalle });
 
 /* ===========================================================
    📌 Compat por CÓDIGO (path params)
@@ -40,11 +29,15 @@ r.post(
   validateBodySimple(CreateProductoSchema),
   async (req, res, next) => {
     try {
-      const creado = await Productos.crearProducto(req.body);
-      return res.status(201).json(ok("/productos", creado));
+      await Productos.crearProducto(req.body);
+      // Respuesta mínima siempre HTTP 200 (sin data)
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e: any) {
       if (e?.code === "23505") {
-        return res.status(409).json(err(3, "/productos", "La clave o el nombre ya existe"));
+        return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
+          httpStatus: 200,
+          message: "La clave o el nombre ya existe",
+        });
       }
       next(e);
     }
@@ -60,11 +53,19 @@ r.put(
     try {
       const { codigo } = req.params;
       const actualizado = await Productos.actualizarPorCodigo(codigo, req.body);
-      if (!actualizado) return res.status(404).json(err(4, "/productos/codigo/:codigo", "No encontrado"));
-      return res.json(ok("/productos/codigo/:codigo", actualizado));
+      if (!actualizado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e: any) {
       if (e?.code === "23505") {
-        return res.status(409).json(err(3, "/productos/codigo/:codigo", "La clave o el nombre ya existe"));
+        return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
+          httpStatus: 200,
+          message: "La clave o el nombre ya existe",
+        });
       }
       next(e);
     }
@@ -76,52 +77,61 @@ r.delete("/codigo/:codigo", async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const eliminado = await Productos.eliminarPorCodigo(codigo);
-    if (!eliminado) return res.status(404).json(err(4, "/productos/codigo/:codigo", "No encontrado"));
-    // mantenemos el campo devuelto tal cual el path param usado
-    return res.json(ok("/productos/codigo/:codigo", { codigo }));
+    if (!eliminado) {
+      return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+        httpStatus: 200,
+        message: "No encontrado",
+      });
+    }
+    return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
   } catch (e) {
     next(e);
   }
 });
 
 /* ===========================================================
-   ❗️DEPRECATED: GET /productos (usar POST /productos/listar)
+   ✅ POST /productos/listar  (antes GET /findbycontainerignorecase)
+   - Todo por JSON body.
+   - Case-insensitive, exacto por clave/nombre.
+   - Mantiene paginación y orden.
+   - 🔥 Devuelve data (items + meta).
    =========================================================== */
-r.get("/", (_req, res) => {
-  return res
-    .status(410)
-    .json(
-      err(
-        4,
-        "/productos",
-        "Este endpoint está deprecado. Usa POST /productos/listar con JSON."
-      )
-    );
-});
 
-/* ===========================================================
-   ✅ NUEVO: POST /productos/listar (JSON-only, paginado + filtros)
-   =========================================================== */
+const ProductoFindBodySchema = z.object({
+  clave: z.string().optional().transform(v => (v ?? "").trim()),
+  nombre: z.string().optional().transform(v => (v ?? "").trim()),
+  page: z.coerce.number().int("page → Debe ser entero").min(1, "page → Debe ser ≥ 1").default(1),
+  per_page: z.coerce.number().int("per_page → Debe ser entero").min(1, "per_page → Debe ser ≥ 1").max(100, "per_page → Máximo 100").default(20),
+  sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
+  sort_dir: z.enum(["asc", "desc"]).optional(),
+}).strict();
+
 r.post(
   "/listar",
   requireJson,
-  validateBodySimple(ProductoListInput),
+  validateBodySimple(ProductoFindBodySchema),
   async (req, res, next) => {
     try {
-      const { page, per_page, sort_by, sort_dir, q } = req.body;
+      const { clave = "", nombre = "", page, per_page, sort_by, sort_dir } = req.body as any;
 
-      const data = await Productos.listarProductosPaginado({
+      const data = await Productos.findByContainerIgnoreCase({
         page,
         perPage: per_page,
         sortBy: sort_by,
         sortDir: sort_dir,
-        q: q ?? null,
+        clave,
+        nombre,
       });
 
-      return res.json(ok("/productos/listar", data));
+      // En listar SÍ devolvemos data
+      return sendCode(req, res, AppCode.OK, data, { httpStatus: 200, message: "OK" });
     } catch (e: any) {
       if (e?.status === 400 && e?.code === "PARAMETRO_INVALIDO") {
-        return res.status(400).json(err(1, "/productos/listar", e.message, e.detail));
+        // Validación de parámetros: HTTP 200 pero sin data
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message,
+        });
       }
       next(e);
     }
@@ -129,24 +139,18 @@ r.post(
 );
 
 /* ===========================================================
+   ❗️DEPRECATED: GET /productos (sugiere el nuevo)
+   =========================================================== */
+r.get("/", (_req, res) => {
+  return sendCode(_req, res, AppCode.NOT_FOUND, undefined, {
+    httpStatus: 200,
+    message: "Este endpoint está deprecado. Usa POST /productos/listar con body JSON.",
+  });
+});
+
+/* ===========================================================
    ✅ CRUD JSON-only por CLAVE
    =========================================================== */
-
-/** POST /productos/clave/obtener  → { clave } */
-r.post(
-  "/clave/obtener",
-  requireJson,
-  validateBodySimple(IdPorClaveSchema),
-  async (req, res, next) => {
-    try {
-      const prod = await Productos.obtenerPorClave(req.body.clave);
-      if (!prod) return res.status(404).json(err(4, "/productos/clave/obtener", "No encontrado"));
-      return res.json(ok("/productos/clave/obtener", prod));
-    } catch (e) {
-      next(e);
-    }
-  }
-);
 
 /** PUT /productos/clave/actualizar → { clave, ...campos } */
 r.put(
@@ -157,11 +161,19 @@ r.put(
     try {
       const { clave, ...data } = req.body;
       const actualizado = await Productos.actualizarPorClave(clave, data);
-      if (!actualizado) return res.status(404).json(err(4, "/productos/clave/actualizar", "No encontrado"));
-      return res.json(ok("/productos/clave/actualizar", actualizado));
+      if (!actualizado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e: any) {
       if (e?.code === "23505") {
-        return res.status(409).json(err(3, "/productos/clave/actualizar", "La clave o el nombre ya existe"));
+        return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
+          httpStatus: 200,
+          message: "La clave o el nombre ya existe",
+        });
       }
       next(e);
     }
@@ -176,8 +188,13 @@ r.put(
   async (req, res, next) => {
     try {
       const prod = await Productos.actualizarStockMinimoPorClave(req.body.clave, req.body.stock_minimo);
-      if (!prod) return res.status(404).json(err(4, "/productos/clave/stock-minimo", "No encontrado"));
-      return res.json(ok("/productos/clave/stock-minimo", prod));
+      if (!prod) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e) {
       next(e);
     }
@@ -188,12 +205,17 @@ r.put(
 r.delete(
   "/clave/eliminar",
   requireJson,
-  validateBodySimple(IdPorClaveSchema),
+  validateBodySimple(UpdatePorClaveSchema.pick({ clave: true })), // solo valida 'clave'
   async (req, res, next) => {
     try {
       const eliminado = await Productos.eliminarPorClave(req.body.clave);
-      if (!eliminado) return res.status(404).json(err(4, "/productos/clave/eliminar", "No encontrado"));
-      return res.json(ok("/productos/clave/eliminar", { clave: req.body.clave }));
+      if (!eliminado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e) {
       next(e);
     }
@@ -204,22 +226,6 @@ r.delete(
    ✅ CRUD JSON-only por NOMBRE
    =========================================================== */
 
-/** POST /productos/obtener  → { nombre } */
-r.post(
-  "/obtener",
-  requireJson,
-  validateBodySimple(IdPorNombreSchema),
-  async (req, res, next) => {
-    try {
-      const prod = await Productos.obtenerPorNombre(req.body.nombre);
-      if (!prod) return res.status(404).json(err(4, "/productos/obtener", "No encontrado"));
-      return res.json(ok("/productos/obtener", prod));
-    } catch (e) {
-      next(e);
-    }
-  }
-);
-
 /** PUT /productos/actualizar  → { nombre, ...campos } */
 r.put(
   "/actualizar",
@@ -229,11 +235,19 @@ r.put(
     try {
       const { nombre, ...data } = req.body;
       const actualizado = await Productos.actualizarPorNombre(nombre, data);
-      if (!actualizado) return res.status(404).json(err(4, "/productos/actualizar", "No encontrado"));
-      return res.json(ok("/productos/actualizar", actualizado));
+      if (!actualizado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e: any) {
       if (e?.code === "23505") {
-        return res.status(409).json(err(3, "/productos/actualizar", "La clave o el nombre ya existe"));
+        return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
+          httpStatus: 200,
+          message: "La clave o el nombre ya existe",
+        });
       }
       next(e);
     }
@@ -248,8 +262,13 @@ r.put(
   async (req, res, next) => {
     try {
       const prod = await Productos.actualizarStockMinimoPorNombre(req.body.nombre, req.body.stock_minimo);
-      if (!prod) return res.status(404).json(err(4, "/productos/stock-minimo", "No encontrado"));
-      return res.json(ok("/productos/stock-minimo", prod));
+      if (!prod) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e) {
       next(e);
     }
@@ -260,12 +279,17 @@ r.put(
 r.delete(
   "/eliminar",
   requireJson,
-  validateBodySimple(IdPorNombreSchema),
+  validateBodySimple(UpdatePorNombreSchema.pick({ nombre: true })), // solo valida 'nombre'
   async (req, res, next) => {
     try {
       const eliminado = await Productos.eliminarPorNombre(req.body.nombre);
-      if (!eliminado) return res.status(404).json(err(4, "/productos/eliminar", "No encontrado"));
-      return res.json(ok("/productos/eliminar", { nombre: req.body.nombre }));
+      if (!eliminado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
     } catch (e) {
       next(e);
     }

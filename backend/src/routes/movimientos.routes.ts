@@ -1,6 +1,7 @@
 // src/routes/movimientos.routes.ts
 import { Router } from "express";
 import { validateBodySimple } from "../middlewares/validate";
+import { requireJson } from "../middlewares/require-json";
 import {
   MovimientoEntradaSchema,
   MovimientoSalidaSchema,
@@ -10,81 +11,112 @@ import {
   registrarSalida,
   listarMovimientos,
 } from "../models/movimiento.model";
+import { sendCode } from "../status/respond";
+import { AppCode } from "../status/codes";
 
 const r = Router();
 
-/** Helpers estándar de respuesta */
-const stamp = () => new Date().toISOString();
-const ok = (path: string, data: any) =>
-  ({ codigo: 0, mensaje: "OK", path, timestamp: stamp(), data });
-const err = (codigo: number, path: string, mensaje: string, detalle?: any) =>
-  ({ codigo, mensaje, path, timestamp: stamp(), detalle });
-
-/** GET /movimientos (opcional para auditar) */
+/** GET /movimientos (listar con data) */
 r.get("/", async (req, res, next) => {
   try {
-    const limit = Number(req.query.limit ?? 50);
-    const offset = Number(req.query.offset ?? 0);
-    const data = await listarMovimientos(limit, offset);
-    res.json(ok("/movimientos", data));
-  } catch (e) { next(e); }
+    const limitQ = Number(req.query.limit ?? 50);
+    const offsetQ = Number(req.query.offset ?? 0);
+
+    const limit =
+      Number.isFinite(limitQ) && limitQ > 0 ? Math.min(limitQ, 1000) : 50;
+    const offset =
+      Number.isFinite(offsetQ) && offsetQ >= 0 ? offsetQ : 0;
+
+    const raw = await listarMovimientos(limit, offset);
+
+    // Soporta tanto retorno plano (array) como objetos {items, meta}
+    const data =
+      raw && typeof raw === "object" && "items" in (raw as any) && "meta" in (raw as any)
+        ? raw
+        : Array.isArray(raw)
+        ? {
+            items: raw,
+            meta: {
+              limit,
+              offset,
+              count: raw.length,
+            },
+          }
+        : {
+            items: [],
+            meta: { limit, offset, count: 0 },
+          };
+
+    return sendCode(req, res, AppCode.OK, data, { message: "OK" });
+  } catch (e) {
+    return next(e);
+  }
 });
 
 /** POST /movimientos/entrada */
 r.post(
   "/entrada",
+  requireJson,
   validateBodySimple(MovimientoEntradaSchema),
   async (req, res, next) => {
     try {
-      const result = await registrarEntrada(req.body);
-      return res
-        .status(201)
-        .json(ok("/movimientos/entrada", result));
+      await registrarEntrada(req.body);
+      // 201 creado, respuesta minimal (sin data)
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 201,
+        message: "OK",
+      });
     } catch (e: any) {
-      // Errores controlados desde el modelo
       if (e?.status === 404) {
-        return res
-          .status(404)
-          .json(err(4, "/movimientos/entrada", e.message));
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: e.message || "No encontrado",
+        });
       }
       if (e?.status === 400) {
-        return res
-          .status(400)
-          .json(err(1, "/movimientos/entrada", e.message));
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message || "Validación fallida",
+        });
       }
-      next(e);
+      return next(e);
     }
   }
 );
 
-/** POST /movimientos/salida (con cliente_id opcional) */
+/** POST /movimientos/salida (con cliente_id requerido) */
 r.post(
   "/salida",
+  requireJson,
   validateBodySimple(MovimientoSalidaSchema),
   async (req, res, next) => {
     try {
-      const result = await registrarSalida(req.body);
-      return res
-        .status(201)
-        .json(ok("/movimientos/salida", result));
+      await registrarSalida(req.body);
+      // 201 creado, respuesta minimal (sin data)
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 201,
+        message: "OK",
+      });
     } catch (e: any) {
-      // Regla: si cantidad > stock_actual
       if (e?.code === "STOCK_INSUFICIENTE") {
-        return res
-          .status(400)
-          .json(err(1, "/movimientos/salida", e.message));
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message || "Stock insuficiente",
+        });
       }
       if (e?.status === 404) {
-        return res
-          .status(404)
-          .json(err(4, "/movimientos/salida", e.message));
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: e.message || "No encontrado",
+        });
       }
       if (e?.status === 400) {
-        return res
-          .status(400)
-          .json(err(1, "/movimientos/salida", e.message));
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message || "Validación fallida",
+        });
       }
-      next(e);
+      return next(e);
     }
   }
 );

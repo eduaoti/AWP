@@ -1,4 +1,3 @@
-// src/middlewares/validate.ts
 import { NextFunction, Request, Response } from "express";
 import {
   ZodError,
@@ -117,7 +116,7 @@ function formatZodError(err: ZodError): DetalleValidacion {
 /** Selecciona un ÚNICO mensaje compacto para responder (solo {codigo,mensaje}) */
 function pickSingleMessage(det: DetalleValidacion, req: Request): string {
   // 1) Prioriza campos con null explícito
-  for (const [k, arr] of Object.entries(det.fieldErrors)) {
+  for (const [k] of Object.entries(det.fieldErrors)) {
     const val = getValueAtPath(req.body, k);
     if (val === null) {
       return `El campo '${k}' no puede ser nulo.`;
@@ -138,13 +137,16 @@ function pickSingleMessage(det: DetalleValidacion, req: Request): string {
   return "Validación fallida.";
 }
 
-/** Manejo de errores de validación: ahora responde SOLO { codigo, mensaje } */
+/** Manejo de errores de validación: responder 200 con {codigo, mensaje} */
 function handleErr(err: unknown, req: Request, res: Response, next: NextFunction) {
   if (err instanceof ZodError) {
     const detalle = formatZodError(err);
     const mensaje = pickSingleMessage(detalle, req);
-    // Solo código + mensaje
-    return res.status(400).json({ codigo: AppCode.VALIDATION_FAILED, mensaje });
+    // ⬇️ Forzamos HTTP 200 y SIN data
+    return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+      httpStatus: 200,
+      message: mensaje
+    });
   }
   return next(err);
 }

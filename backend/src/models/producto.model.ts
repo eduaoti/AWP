@@ -1,3 +1,4 @@
+// src/models/producto.model.ts
 import { pool } from "../db";
 import type {
   CreateProductoDTO,
@@ -175,13 +176,7 @@ export async function actualizarStockMinimoPorCodigo(codigo: string, stockMin: n
 }
 
 /* ===========================================================
-   ✅ NUEVO: Listado con paginación estricta
-   - page:     entero ≥ 1
-   - perPage:  entero ≥ 1 (cap a 100)
-   - sortBy:   whitelist (nombre, precio, stock_actual, creado_en)
-   - sortDir:  asc|desc
-   - q:        búsqueda opcional (min 2, máx 120) en nombre/clave/categoría
-   Devuelve { items, meta: {...} }
+   ✅ Listado con paginación estricta (búsqueda general q)
    =========================================================== */
 
 export type ListarProductosOpts = {
@@ -303,4 +298,118 @@ export async function listarProductosPaginado(opts: ListarProductosOpts) {
   };
 
   return { items: rows, meta };
+}
+
+/* ===========================================================
+   ✅ NUEVO: Unificado GET (clave | nombre | todos) case-insensitive
+   =========================================================== */
+
+export type FindByContainerOpts = {
+  page: number;
+  perPage: number;
+  sortBy?: "nombre" | "precio" | "stock_actual" | "creado_en";
+  sortDir?: "asc" | "desc";
+  clave?: string;   // "" o undefined => sin filtro por clave
+  nombre?: string;  // "" o undefined => sin filtro por nombre
+};
+
+/**
+ * Unifica:
+ * - clave y nombre vacíos -> todos
+ * - clave con valor       -> por clave (ignora nombre)
+ * - nombre con valor      -> por nombre
+ * Comparación exacta case-insensitive (LOWER(...)=LOWER($)).
+ */
+export async function findByContainerIgnoreCase(opts: FindByContainerOpts) {
+  const pageRaw = Number(opts.page);
+  const perRaw  = Number(opts.perPage);
+
+  if (!Number.isInteger(pageRaw) || pageRaw < 1) {
+    const err: any = new Error("page → Debe ser entero ≥ 1");
+    err.status = 400; err.code = "PARAMETRO_INVALIDO"; err.detail = { page: opts.page };
+    throw err;
+  }
+  if (!Number.isInteger(perRaw) || perRaw < 1) {
+    const err: any = new Error("per_page → Debe ser entero ≥ 1");
+    err.status = 400; err.code = "PARAMETRO_INVALIDO"; err.detail = { per_page: opts.perPage };
+    throw err;
+  }
+
+  const PER_MAX = 100;
+  const perPage = perRaw > PER_MAX ? PER_MAX : perRaw;
+
+  const sortBy  = (opts.sortBy ?? "nombre").toLowerCase();
+  const sortDir = (opts.sortDir ?? "asc").toLowerCase();
+  const validSortBy  = new Set(["nombre", "precio", "stock_actual", "creado_en"]);
+  const validSortDir = new Set(["asc", "desc"]);
+  if (!validSortBy.has(sortBy)) {
+    const err: any = new Error("sort_by → Valor inválido. Usa: nombre | precio | stock_actual | creado_en");
+    err.status = 400; err.code = "PARAMETRO_INVALIDO"; err.detail = { sort_by: sortBy };
+    throw err;
+  }
+  if (!validSortDir.has(sortDir)) {
+    const err: any = new Error("sort_dir → Valor inválido. Usa: asc | desc");
+    err.status = 400; err.code = "PARAMETRO_INVALIDO"; err.detail = { sort_dir: sortDir };
+    throw err;
+  }
+
+  const sortMap: Record<string, string> = {
+    nombre: "nombre",
+    precio: "precio",
+    stock_actual: "stock_actual",
+    creado_en: "creado_en",
+  };
+  const sortCol = sortMap[sortBy];
+
+  const clave  = (opts.clave ?? "").trim();
+  const nombre = (opts.nombre ?? "").trim();
+
+  // Prioridad: clave > nombre > todos
+  let where = "";
+  let params: any[] = [];
+  if (clave) {
+    where = `WHERE LOWER(clave) = LOWER($1)`;
+    params = [clave];
+  } else if (nombre) {
+    where = `WHERE LOWER(nombre) = LOWER($1)`;
+    params = [nombre];
+  }
+
+  // COUNT
+  const countSql = `SELECT COUNT(*)::bigint AS total FROM productos ${where}`;
+  const countRes = await pool.query(countSql, params);
+  const total = Number(BigInt(countRes.rows[0]?.total ?? "0"));
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const page = Math.min(pageRaw, totalPages);
+  const offset = (page - 1) * perPage;
+
+  // PAGE
+  const pageSql = `
+    SELECT *
+      FROM productos
+      ${where}
+     ORDER BY ${sortCol} ${sortDir === "desc" ? "DESC" : "ASC"}, id ASC
+     LIMIT $${params.length + 1}
+    OFFSET $${params.length + 2}
+  `;
+  const { rows } = await pool.query(pageSql, [...params, perPage, offset]);
+
+  return {
+    items: rows,
+    meta: {
+      page,
+      per_page: perPage,
+      total_items: total,
+      total_pages: totalPages,
+      has_prev: page > 1,
+      has_next: page < totalPages,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      filters: {
+        by: clave ? "clave" : (nombre ? "nombre" : "todos"),
+        clave: clave || null,
+        nombre: nombre || null,
+      },
+    },
+  };
 }
