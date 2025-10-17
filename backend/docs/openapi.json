@@ -308,6 +308,9 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
       }
     },
+
+
+
     "/productos": {
       "post": {
         "operationId": "productosCrear",
@@ -376,104 +379,54 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosLowStock" } }
       }
     },
-    "/productos/clave/actualizar": {
-      "put": {
-        "operationId": "productoActualizarPorClaveJson",
-        "tags": ["Productos"],
-        "summary": "Actualizar por clave (JSON-only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["clave"],
-                "properties": {
-                  "clave": { "type": "string" },
-                  "nombre": { "type": "string" },
-                  "unidad": { "type": "string" },
-                  "descripcion": { "type": "string" },
-                  "categoria": { "type": "string" },
-                  "precio": { "type": "number" },
-                  "stock_minimo": { "type": "number" },
-                  "stock_actual": { "type": "number" }
-                },
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-      }
-    },
-    "/productos/clave/stock-minimo": {
-      "put": {
-        "operationId": "productoStockMinimoPorClaveJson",
-        "tags": ["Productos"],
-        "summary": "Actualizar stock mínimo por clave (JSON-only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["clave", "stock_minimo"],
-                "properties": {
-                  "clave": { "type": "string" },
-                  "stock_minimo": { "type": "number", "minimum": 0 }
-                },
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-      }
-    },
-    "/productos/clave/eliminar": {
-      "delete": {
-        "operationId": "productoEliminarPorClaveJson",
-        "tags": ["Productos"],
-        "summary": "Eliminar por clave (JSON-only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["clave"],
-                "properties": { "clave": { "type": "string" } },
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-      }
-    },
+
     "/productos/actualizar": {
       "put": {
-        "operationId": "productoActualizarPorNombreJson",
+        "operationId": "productoActualizarClaveONombre",
         "tags": ["Productos"],
-        "summary": "Actualizar por nombre (JSON-only)",
+        "summary": "Actualizar por clave o por nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}, más los campos a actualizar.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["nombre"],
-                "properties": {
-                  "nombre": { "type": "string" },
-                  "clave": { "type": "string" },
-                  "unidad": { "type": "string" },
-                  "descripcion": { "type": "string" },
-                  "categoria": { "type": "string" },
-                  "precio": { "type": "number" },
-                  "stock_minimo": { "type": "number" },
-                  "stock_actual": { "type": "number" }
-                },
-                "additionalProperties": false
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave"],
+                    "properties": {
+                      "clave": { "type": "string" },
+                      "nombre": { "type": "string" },
+                      "unidad": { "type": "string" },
+                      "descripcion": { "type": "string" },
+                      "categoria": { "type": "string" },
+                      "precio": { "type": "number" },
+                      "stock_minimo": { "type": "number" },
+                      "stock_actual": { "type": "number" }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre"],
+                    "properties": {
+                      "nombre": { "type": "string" },
+                      "clave": { "type": "string" },
+                      "unidad": { "type": "string" },
+                      "descripcion": { "type": "string" },
+                      "categoria": { "type": "string" },
+                      "precio": { "type": "number" },
+                      "stock_minimo": { "type": "number" },
+                      "stock_actual": { "type": "number" }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001", "precio": 99.9 } },
+                "porNombre": { "value": { "nombre": "Guantes", "categoria": "EPP" } }
               }
             }
           }
@@ -481,23 +434,42 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
+
     "/productos/stock-minimo": {
       "put": {
-        "operationId": "productoStockMinimoPorNombreJson",
+        "operationId": "productoStockMinimoClaveONombre",
         "tags": ["Productos"],
-        "summary": "Actualizar stock mínimo por nombre (JSON-only)",
+        "summary": "Actualizar stock mínimo por clave o nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}, más {stock_minimo}.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["nombre", "stock_minimo"],
-                "properties": {
-                  "nombre": { "type": "string" },
-                  "stock_minimo": { "type": "number", "minimum": 0 }
-                },
-                "additionalProperties": false
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave", "stock_minimo"],
+                    "properties": {
+                      "clave": { "type": "string" },
+                      "stock_minimo": { "type": "number", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre", "stock_minimo"],
+                    "properties": {
+                      "nombre": { "type": "string" },
+                      "stock_minimo": { "type": "number", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001", "stock_minimo": 10 } },
+                "porNombre": { "value": { "nombre": "Guantes", "stock_minimo": 8 } }
               }
             }
           }
@@ -505,20 +477,36 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
+
     "/productos/eliminar": {
       "delete": {
-        "operationId": "productoEliminarPorNombreJson",
+        "operationId": "productoEliminarClaveONombre",
         "tags": ["Productos"],
-        "summary": "Eliminar por nombre (JSON-only)",
+        "summary": "Eliminar por clave o por nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["nombre"],
-                "properties": { "nombre": { "type": "string" } },
-                "additionalProperties": false
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave"],
+                    "properties": { "clave": { "type": "string" } },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre"],
+                    "properties": { "nombre": { "type": "string" } },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001" } },
+                "porNombre": { "value": { "nombre": "Guantes" } }
               }
             }
           }
@@ -526,6 +514,8 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
+
+
     "/movimientos/entrada": {
       "post": {
         "operationId": "movimientosEntrada",
