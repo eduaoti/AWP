@@ -1,4 +1,4 @@
-import { upsertActiveLowStockAlerts, notifyDueLowStockAlerts, resolveRecoveredAlerts } from "../services/lowStock.service";
+import { upsertActiveLowStockAlerts, notifyDueLowStockAlerts, resolveRecoveredAlerts } from "../services/lowStock";
 import { pool } from "../db";
 
 const LOCK_KEY = BigInt(0x6f6c5f73746b); // "ol_stk"
