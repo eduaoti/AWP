@@ -5,13 +5,96 @@ import {
   CreateProductoSchema,
   UpdateProductoSchema, // usado en compat por código
 } from "../schemas/producto.schemas";
-import { validateBodySimple } from "../middlewares/validate";
+import { validateBodySimple, validateParams } from "../middlewares/validate";
 import { requireJson } from "../middlewares/require-json";
 import * as Productos from "../models/producto.model";
 import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
+import { claveStrict, safeText, nonNegativeInt } from "../schemas/_helpers";
 
 const r = Router();
+
+/* ===========================================================
+   🔧 Helpers de schemas locales (listar y flex)
+   =========================================================== */
+
+// Permite "" (sin filtro) o valida con el schema dado
+const emptyOr = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() : v),
+    z.union([z.literal(""), schema])
+  );
+
+// Body para POST /productos/listar
+const ProductoFindBodySchema = z
+  .object({
+    // Si viene vacío "" → sin filtro; si no, valida fuerte
+    clave: emptyOr(claveStrict("clave", 10)).optional().default(""),
+    nombre: emptyOr(safeText("nombre", 3, 120)).optional().default(""),
+
+    page: z.coerce.number().int().min(1, "page → Debe ser ≥ 1").default(1),
+    per_page: z
+      .coerce.number()
+      .int()
+      .min(1, "per_page → Debe ser ≥ 1")
+      .max(100, "per_page → Máximo 100")
+      .default(20),
+    sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
+    sort_dir: z.enum(["asc", "desc"]).optional(),
+  })
+  .strict();
+
+// Params para /codigo/:codigo
+const CodigoParamSchema = z.object({
+  params: z.object({
+    codigo: claveStrict("codigo", 10),
+  }),
+});
+
+// Identificador XOR (clave | nombre) para endpoints flex
+const IdentificadorSchema = z
+  .object({
+    clave: z
+      .preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string().min(1).optional())
+      .optional(),
+    nombre: z
+      .preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string().min(1).optional())
+      .optional(),
+  })
+  .superRefine((obj, ctx) => {
+    const hasClave = !!obj.clave;
+    const hasNombre = !!obj.nombre;
+    if ((hasClave && hasNombre) || (!hasClave && !hasNombre)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Proporciona solo 'clave' o solo 'nombre'.",
+        path: ["identificador"],
+      });
+      return;
+    }
+    // Validar fuerte según cuál venga
+    if (hasClave) {
+      const res = claveStrict("clave", 10).safeParse(String(obj.clave));
+      if (!res.success) {
+        for (const e of res.error.issues) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: e.message, path: ["clave"] });
+        }
+      }
+    }
+    if (hasNombre) {
+      const res = safeText("nombre", 3, 120).safeParse(String(obj.nombre));
+      if (!res.success) {
+        for (const e of res.error.issues) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: e.message, path: ["nombre"] });
+        }
+      }
+    }
+  });
+
+// Para /stock-minimo (flex): identificador + stock_minimo entero ≥ 0
+const UpdateStockMinimoFlexSchema = (IdentificadorSchema as z.ZodObject<any>).safeExtend({
+  stock_minimo: nonNegativeInt("stock_minimo"),
+});
 
 /* ===========================================================
    📌 Compat por CÓDIGO (path params)
@@ -45,6 +128,7 @@ r.post(
 r.put(
   "/codigo/:codigo",
   requireJson,
+  validateParams(CodigoParamSchema),
   validateBodySimple(UpdateProductoSchema),
   async (req, res, next) => {
     try {
@@ -73,37 +157,32 @@ r.put(
 );
 
 /** DELETE /productos/codigo/:codigo  (eliminar por código - compat) */
-r.delete("/codigo/:codigo", async (req, res, next) => {
-  try {
-    const { codigo } = req.params as { codigo: string };
-    const eliminado = await Productos.eliminarPorCodigo(codigo);
-    if (!eliminado) {
-      return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+r.delete(
+  "/codigo/:codigo",
+  validateParams(CodigoParamSchema),
+  async (req, res, next) => {
+    try {
+      const { codigo } = req.params as { codigo: string };
+      const eliminado = await Productos.eliminarPorCodigo(codigo);
+      if (!eliminado) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: "No encontrado",
+        });
+      }
+      return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
-        message: "No encontrado",
+        message: "Producto eliminado con éxito",
       });
+    } catch (e) {
+      next(e);
     }
-    return sendCode(req, res, AppCode.OK, undefined, {
-      httpStatus: 200,
-      message: "Producto eliminado con éxito",
-    });
-  } catch (e) {
-    next(e);
   }
-});
+);
 
 /* ===========================================================
    ✅ POST /productos/listar (JSON-only)
    =========================================================== */
-
-const ProductoFindBodySchema = z.object({
-  clave: z.string().optional().transform((v) => (v ?? "").trim()),
-  nombre: z.string().optional().transform((v) => (v ?? "").trim()),
-  page: z.coerce.number().int("page → Debe ser entero").min(1, "page → Debe ser ≥ 1").default(1),
-  per_page: z.coerce.number().int("per_page → Debe ser entero").min(1, "per_page → Debe ser ≥ 1").max(100, "per_page → Máximo 100").default(20),
-  sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
-  sort_dir: z.enum(["asc", "desc"]).optional(),
-}).strict();
 
 r.post(
   "/listar",
@@ -122,7 +201,6 @@ r.post(
         nombre,
       });
 
-      // En listados, podemos dejar un mensaje neutro o afirmar éxito del listado
       return sendCode(req, res, AppCode.OK, data, {
         httpStatus: 200,
         message: "Listado generado con éxito",
@@ -151,19 +229,8 @@ r.get("/", (_req, res) => {
 
 /* ===========================================================
    🔄 ENDPOINTS UNIFICADOS: por CLAVE *o* por NOMBRE
-   - Envia exactamente uno de: { clave } o { nombre } (XOR)
+   - Envia exactamente uno de: { clave } o { nombre } (XOR) validado FUERTE
    =========================================================== */
-
-// Regla XOR para identificador
-const IdentificadorSchema = z
-  .object({
-    clave: z.string().trim().optional(),
-    nombre: z.string().trim().optional(),
-  })
-  .refine((d) => (!!d.clave && !d.nombre) || (!d.clave && !!d.nombre), {
-    message: "Proporciona solo 'clave' o solo 'nombre'.",
-    path: ["identificador"],
-  });
 
 // PUT /productos/actualizar  → { clave|nombre, ...campos }
 const UpdateProductoFlexSchema = IdentificadorSchema.passthrough();
@@ -203,11 +270,6 @@ r.put(
 );
 
 // PUT /productos/stock-minimo → { clave|nombre, stock_minimo }
-// ✅ Zod v4: usar safeExtend cuando el objeto tiene refine()
-const UpdateStockMinimoFlexSchema = (IdentificadorSchema as z.ZodObject<any>).safeExtend({
-  stock_minimo: z.coerce.number().finite().min(0, "stock_minimo debe ser ≥ 0"),
-});
-
 r.put(
   "/stock-minimo",
   requireJson,
@@ -237,12 +299,10 @@ r.put(
 );
 
 // DELETE /productos/eliminar → { clave|nombre }
-const DeleteFlexSchema = IdentificadorSchema;
-
 r.delete(
   "/eliminar",
   requireJson,
-  validateBodySimple(DeleteFlexSchema),
+  validateBodySimple(IdentificadorSchema),
   async (req, res, next) => {
     try {
       const { clave, nombre } = req.body as { clave?: string; nombre?: string };

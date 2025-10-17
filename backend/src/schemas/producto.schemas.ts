@@ -1,32 +1,56 @@
 // src/schemas/producto.schemas.ts
 import { z } from "zod";
 import {
-  nonEmptyTrimmed,
+  safeText,
   noFlood,
-  nonNegativeNoMinusZero,
+  positiveMoney,
+  nonNegativeInt,
   alphaUnidad,
   alphaCategoria,
+  claveStrict,
 } from "./_helpers";
 
 /* ===========================================================
-   🧱 Campos base
+   🔧 Helper: permite "" (sin filtro) o valida con el schema dado
+   =========================================================== */
+const emptyOr = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (v) => (typeof v === "string" ? v.trim() : v),
+    z.union([z.literal(""), schema])
+  );
+
+/* ===========================================================
+   🧱 Campos base (endurecidos)
    =========================================================== */
 
-const Nombre = nonEmptyTrimmed(2, 120, "nombre").and(noFlood("nombre"));
+/** Nombre: texto seguro, 3–120, sin HTML/JS, sin floods */
+const Nombre = safeText("nombre", 3, 120).and(noFlood("nombre"));
 
+/** Descripción: opcional, trim/collapse, ≤ 240, sin HTML/JS ni floods */
 const Descripcion = z
-  .string()
-  .default("")
-  .transform((v) => v.trim())
-  .refine((v) => v.length <= 240, {
-    message: "descripcion → No debe exceder 240 caracteres",
-  })
-  .refine((v) => !/(.)\1{4,}/.test(v), {
-    message: "descripcion → Contenido ambiguo o repetitivo",
-  });
+  // Normaliza: si es string → trim; si no, deja tal cual (para que .optional() funcione)
+  .preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string())
+  // Convierte a ZodString para poder usar .max/.refine con types correctos
+  .pipe(
+    z
+      .string()
+      .max(240, { message: "descripcion → No debe exceder 240 caracteres" })
+      .refine((v: string) => !/<[^>]*>|<|>|&lt;|&gt;/i.test(v), {
+        message: "descripcion → HTML/JS no permitido",
+      })
+      .refine(
+        (v: string) => !/(script|onerror|onload|onclick|onmouseover|javascript:)/i.test(v),
+        { message: "descripcion → Contenido potencialmente peligroso" }
+      )
+      .refine((v: string) => !/(.)\1{4,}/.test(v), {
+        message: "descripcion → Contenido ambiguo o repetitivo",
+      })
+  )
+  .optional();
 
-/** 👉 'clave' sustituye a 'codigo' */
-const Clave = nonEmptyTrimmed(1, 60, "clave");
+
+/** 👉 'clave' estricta: solo [A-Za-z0-9-], sin “--”, sin iniciar/terminar con -, máx 10 */
+const Clave = claveStrict("clave", 10);
 
 /* ===========================================================
    ✨ Crear producto
@@ -36,21 +60,36 @@ export const CreateProductoSchema = z
   .object({
     clave: Clave,
     nombre: Nombre,
-    unidad: alphaUnidad,
-    descripcion: Descripcion.optional(),
-    categoria: alphaCategoria, // OBLIGATORIA
-    precio: nonNegativeNoMinusZero("precio").default(0),
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo").default(0),
-    stock_actual: nonNegativeNoMinusZero("stock_actual").default(0),
+    unidad: alphaUnidad,                        // validación/normalización
+    descripcion: Descripcion,                   // opcional ya arriba
+    categoria: alphaCategoria,                  // OBLIGATORIA (segura)
+    precio: positiveMoney("precio"),            // > 0, 2 decimales, tope razonable
+    stock_minimo: nonNegativeInt("stock_minimo"), // entero ≥ 0
+    stock_actual: nonNegativeInt("stock_actual"), // entero ≥ 0
   })
   .strict()
   .superRefine((obj, ctx) => {
+    // coherencia de stock
     if (obj.stock_minimo > obj.stock_actual) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          "stock_minimo → No puede ser mayor que stock_actual",
+        message: "stock_minimo → No puede ser mayor que stock_actual",
         path: ["stock_minimo"],
+      });
+    }
+    // nombre no debe ser solo dígitos/guiones ni idéntico a la clave
+    if (/^[\d-]+$/.test(obj.nombre)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "nombre → Debe contener letras (no solo dígitos/guiones)",
+        path: ["nombre"],
+      });
+    }
+    if (obj.nombre.toLowerCase() === obj.clave.toLowerCase()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "nombre → No debe ser idéntico a la clave",
+        path: ["nombre"],
       });
     }
   });
@@ -63,11 +102,11 @@ export const UpdateProductoSchema = z
   .object({
     nombre: Nombre.optional(),
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion.optional(),
+    descripcion: Descripcion, // ya es optional arriba
     categoria: alphaCategoria.optional(),
-    precio: nonNegativeNoMinusZero("precio").optional(),
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
-    stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
+    precio: positiveMoney("precio").optional(),
+    stock_minimo: nonNegativeInt("stock_minimo").optional(),
+    stock_actual: nonNegativeInt("stock_actual").optional(),
   })
   .strict()
   .superRefine((obj, ctx) => {
@@ -78,8 +117,7 @@ export const UpdateProductoSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          "stock_minimo → No puede ser mayor que stock_actual",
+        message: "stock_minimo → No puede ser mayor que stock_actual",
         path: ["stock_minimo"],
       });
     }
@@ -94,7 +132,7 @@ export const UpdateProductoSchema = z
 
 export const UpdateStockMinimoSchema = z
   .object({
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo"),
+    stock_minimo: nonNegativeInt("stock_minimo"),
   })
   .strict();
 
@@ -113,11 +151,11 @@ export const UpdatePorClaveSchema = z
     clave: Clave, // no se permite cambiar aquí
     nombre: Nombre.optional(),
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion.optional(),
+    descripcion: Descripcion,
     categoria: alphaCategoria.optional(),
-    precio: nonNegativeNoMinusZero("precio").optional(),
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
-    stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
+    precio: positiveMoney("precio").optional(),
+    stock_minimo: nonNegativeInt("stock_minimo").optional(),
+    stock_actual: nonNegativeInt("stock_actual").optional(),
   })
   .strict()
   .superRefine((obj, ctx) => {
@@ -128,8 +166,7 @@ export const UpdatePorClaveSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          "stock_minimo → No puede ser mayor que stock_actual",
+        message: "stock_minimo → No puede ser mayor que stock_actual",
         path: ["stock_minimo"],
       });
     }
@@ -146,7 +183,7 @@ export const UpdatePorClaveSchema = z
 export const UpdateStockMinimoPorClaveSchema = z
   .object({
     clave: Clave,
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo"),
+    stock_minimo: nonNegativeInt("stock_minimo"),
   })
   .strict();
 
@@ -165,11 +202,11 @@ export const UpdatePorNombreSchema = z
     nombre: Nombre,
     clave: Clave.optional(), // permitido aquí
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion.optional(),
+    descripcion: Descripcion,
     categoria: alphaCategoria.optional(),
-    precio: nonNegativeNoMinusZero("precio").optional(),
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo").optional(),
-    stock_actual: nonNegativeNoMinusZero("stock_actual").optional(),
+    precio: positiveMoney("precio").optional(),
+    stock_minimo: nonNegativeInt("stock_minimo").optional(),
+    stock_actual: nonNegativeInt("stock_actual").optional(),
   })
   .strict()
   .superRefine((obj, ctx) => {
@@ -180,8 +217,7 @@ export const UpdatePorNombreSchema = z
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message:
-          "stock_minimo → No puede ser mayor que stock_actual",
+        message: "stock_minimo → No puede ser mayor que stock_actual",
         path: ["stock_minimo"],
       });
     }
@@ -198,7 +234,7 @@ export const UpdatePorNombreSchema = z
 export const UpdateStockMinimoPorNombreSchema = z
   .object({
     nombre: Nombre,
-    stock_minimo: nonNegativeNoMinusZero("stock_minimo"),
+    stock_minimo: nonNegativeInt("stock_minimo"),
   })
   .strict();
 
@@ -208,18 +244,13 @@ export const UpdateStockMinimoPorNombreSchema = z
 
 export const ProductoListInput = z
   .object({
-    page: z.coerce
-      .number()
-      .int("page → Debe ser entero")
-      .min(1, "page → Debe ser ≥ 1"),
-    per_page: z.coerce
-      .number()
-      .int("per_page → Debe ser entero")
+    page: z.coerce.number().int().min(1, "page → Debe ser ≥ 1"),
+    per_page: z
+      .coerce.number()
+      .int()
       .min(1, "per_page → Debe ser ≥ 1")
       .max(100, "per_page → Máximo 100"),
-    sort_by: z
-      .enum(["nombre", "precio", "stock_actual", "creado_en"])
-      .optional(),
+    sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
     sort_dir: z.enum(["asc", "desc"]).optional(),
     q: z
       .string()
@@ -231,44 +262,22 @@ export const ProductoListInput = z
   .strict();
 
 /* ===========================================================
-   ✅ GET unificado: /productos/findbycontainerignorecase
-   - Todo por QUERY STRING.
-   - Acepta clave y/o nombre vacíos ("") para indicar “no filtrar”.
-   - Case-insensitive y coincidencia EXACTA si se envía valor.
-   - Mantiene paginación/ordenamiento.
+   ✅ GET unificado: /productos/findbycontainerignorecase (por QUERY)
+   - Acepta "" como “sin filtro”, valida fuerte si traen valor
    =========================================================== */
 
 export const ProductoFindQuerySchema = z
   .object({
-    // Permite "" o string; se normaliza/trim
-    clave: z
-      .string()
-      .optional()
-      .transform((v) => (v ?? "").trim())
-      .refine((v) => v.length <= 60, {
-        message: "clave → Máximo 60 caracteres",
-      }),
-    nombre: z
-      .string()
-      .optional()
-      .transform((v) => (v ?? "").trim())
-      .refine((v) => v.length <= 120, {
-        message: "nombre → Máximo 120 caracteres",
-      }),
-    page: z
-      .coerce.number()
-      .int("page → Debe ser entero")
-      .min(1, "page → Debe ser ≥ 1")
-      .default(1),
+    clave: emptyOr(claveStrict("clave", 10)).optional().default(""),
+    nombre: emptyOr(safeText("nombre", 3, 120)).optional().default(""),
+    page: z.coerce.number().int().min(1, "page → Debe ser ≥ 1").default(1),
     per_page: z
       .coerce.number()
-      .int("per_page → Debe ser entero")
+      .int()
       .min(1, "per_page → Debe ser ≥ 1")
       .max(100, "per_page → Máximo 100")
       .default(20),
-    sort_by: z
-      .enum(["nombre", "precio", "stock_actual", "creado_en"])
-      .optional(),
+    sort_by: z.enum(["nombre", "precio", "stock_actual", "creado_en"]).optional(),
     sort_dir: z.enum(["asc", "desc"]).optional(),
   })
   .strict();
@@ -283,15 +292,11 @@ export type UpdateStockMinimoDTO = z.infer<typeof UpdateStockMinimoSchema>;
 
 export type IdPorClaveDTO = z.infer<typeof IdPorClaveSchema>;
 export type UpdatePorClaveDTO = z.infer<typeof UpdatePorClaveSchema>;
-export type UpdateStockMinimoPorClaveDTO = z.infer<
-  typeof UpdateStockMinimoPorClaveSchema
->;
+export type UpdateStockMinimoPorClaveDTO = z.infer<typeof UpdateStockMinimoPorClaveSchema>;
 
 export type IdPorNombreDTO = z.infer<typeof IdPorNombreSchema>;
 export type UpdatePorNombreDTO = z.infer<typeof UpdatePorNombreSchema>;
-export type UpdateStockMinimoPorNombreDTO = z.infer<
-  typeof UpdateStockMinimoPorNombreSchema
->;
+export type UpdateStockMinimoPorNombreDTO = z.infer<typeof UpdateStockMinimoPorNombreSchema>;
 
 export type ProductoListInputDTO = z.infer<typeof ProductoListInput>;
 export type ProductoFindQueryDTO = z.infer<typeof ProductoFindQuerySchema>;
