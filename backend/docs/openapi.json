@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AWP MVP API",
-    "version": "1.0.6",
-    "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}."
+    "version": "1.1.0",
+    "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}. Las alertas de bajo stock se gestionan automáticamente por un worker; la API no envía correos."
   },
   "tags": [
     { "name": "Auth", "description": "Login y validación OTP" },
@@ -91,7 +91,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/auth/otp/setup/start": {
       "post": {
         "operationId": "otpSetupStart",
@@ -104,9 +103,7 @@
               "schema": {
                 "type": "object",
                 "required": ["preAuth"],
-                "properties": {
-                  "preAuth": { "type": "string" }
-                },
+                "properties": { "preAuth": { "type": "string" } },
                 "additionalProperties": false
               }
             }
@@ -140,7 +137,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/auth/recovery/request": {
       "post": {
         "operationId": "recoveryRequest",
@@ -153,9 +149,7 @@
               "schema": {
                 "type": "object",
                 "required": ["email"],
-                "properties": {
-                  "email": { "type": "string", "format": "email" }
-                },
+                "properties": { "email": { "type": "string", "format": "email" } },
                 "additionalProperties": false
               }
             }
@@ -188,7 +182,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/auth/sessions": {
       "get": {
         "operationId": "authListSessions",
@@ -234,7 +227,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_LogoutAll" } }
       }
     },
-
     "/usuarios/nuevo": {
       "post": {
         "operationId": "usuariosCrear",
@@ -316,7 +308,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
       }
     },
-
     "/productos": {
       "post": {
         "operationId": "productosCrear",
@@ -374,6 +365,15 @@
           }
         },
         "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosList" } }
+      }
+    },
+    "/productos/low-stock": {
+      "get": {
+        "operationId": "productosLowStockList",
+        "tags": ["Productos"],
+        "summary": "Listar productos con bajo stock (solo lectura)",
+        "description": "Devuelve productos con stock_actual < stock_minimo. No envía correos; las notificaciones automáticas las maneja el worker.",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosLowStock" } }
       }
     },
     "/productos/clave/actualizar": {
@@ -526,17 +526,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
-    "/productos/alertas": {
-      "get": {
-        "operationId": "productosAlertas",
-        "tags": ["Productos"],
-        "summary": "[DEV] Alertas de stock (Stock_Actual < Stock_Mínimo)",
-        "description": "Devuelve productos con stock_actual < stock_minimo y encola notificación por correo al usuario con rol 'jefe_inventario' (si existe).",
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosAlertas" } }
-      }
-    },
-
     "/movimientos/entrada": {
       "post": {
         "operationId": "movimientosEntrada",
@@ -593,7 +582,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/proveedores": {
       "get": {
         "operationId": "proveedoresListar",
@@ -625,7 +613,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/clientes": {
       "get": {
         "operationId": "clientesListar",
@@ -657,7 +644,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/estadisticas/ventas-producto": {
       "post": {
         "operationId": "estadisticasVentasProducto",
@@ -824,15 +810,6 @@
           "ultimo_uso": { "type": "string", "format": "date-time" },
           "actual": { "type": "boolean" }
         }
-      },
-      "ProductosAlertasNotify": {
-        "type": "object",
-        "properties": {
-          "to": { "type": "string", "nullable": true, "description": "Correo del jefe de inventario o null si no existe" },
-          "enqueued": { "type": "boolean", "description": "Si se encoló el correo" },
-          "count": { "type": "integer", "description": "Cantidad de productos en alerta" }
-        },
-        "required": ["enqueued", "count"]
       }
     },
     "responses": {
@@ -896,6 +873,49 @@
                 }
               },
               "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Resp200_ProductosLowStock": {
+        "description": "Listar productos con bajo stock (solo lectura, sin notificación)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "codigo": 0,
+              "mensaje": "OK",
+              "data": {
+                "items": [
+                  {
+                    "id": 12,
+                    "clave": "SKU-001",
+                    "nombre": "Guantes",
+                    "unidad": "pieza",
+                    "categoria": "EPP",
+                    "precio": 45.5,
+                    "stock_minimo": 10,
+                    "stock_actual": 2,
+                    "creado_en": "2025-01-10T18:20:00Z",
+                    "actualizado_en": "2025-02-15T12:01:00Z"
+                  }
+                ]
+              }
             }
           }
         }
@@ -1100,51 +1120,6 @@
               "additionalProperties": false
             },
             "example": { "codigo": 0, "mensaje": "OK", "data": { "all": true } }
-          }
-        }
-      },
-      "Resp200_ProductosAlertas": {
-        "description": "Alertas de stock: lista de productos con stock_actual < stock_minimo y estado de notificación",
-        "content": {
-          "application/json": {
-            "schema": {
-              "type": "object",
-              "required": ["codigo", "mensaje", "data"],
-              "properties": {
-                "codigo": { "type": "integer" },
-                "mensaje": { "type": "string" },
-                "data": {
-                  "type": "object",
-                  "properties": {
-                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
-                    "notify": { "$ref": "#/components/schemas/ProductosAlertasNotify" }
-                  },
-                  "required": ["items", "notify"]
-                }
-              },
-              "additionalProperties": false
-            },
-            "example": {
-              "codigo": 0,
-              "mensaje": "OK",
-              "data": {
-                "items": [
-                  {
-                    "id": 12,
-                    "clave": "SKU-001",
-                    "nombre": "Guantes",
-                    "unidad": "pieza",
-                    "categoria": "EPP",
-                    "precio": 45.5,
-                    "stock_minimo": 10,
-                    "stock_actual": 2,
-                    "creado_en": "2025-01-10T18:20:00Z",
-                    "actualizado_en": "2025-02-15T12:01:00Z"
-                  }
-                ],
-                "notify": { "to": "jefe@empresa.com", "enqueued": true, "count": 1 }
-              }
-            }
           }
         }
       }

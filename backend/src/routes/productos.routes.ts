@@ -16,7 +16,6 @@ import { requireJson } from "../middlewares/require-json";
 import * as Productos from "../models/producto.model";
 import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
-import { enqueueLowStockAlertToChief } from "../services/emailQueue";
 
 const r = Router();
 
@@ -92,7 +91,7 @@ r.delete("/codigo/:codigo", async (req, res, next) => {
 });
 
 /* ===========================================================
-   ✅ POST /productos/listar  (antes GET /findbycontainerignorecase)
+   ✅ POST /productos/listar
    - Todo por JSON body.
    - Case-insensitive, exacto por clave/nombre.
    - Mantiene paginación y orden.
@@ -299,35 +298,19 @@ r.delete(
 );
 
 /* ===========================================================
-   🚨 NUEVO (DEV): GET /productos/alertas
-   - Lista productos con stock_actual < stock_minimo
-   - Encola correo a 'jefe_inventario' con el resumen
-   - Devuelve data (items y resultado de notificación)
+   📴 Sin endpoints para enviar alertas
+   - El envío es automático por el worker de bajo stock.
+   - (Opcional) Dejar una ruta SOLO-LECTURA para UI/dashboard.
    =========================================================== */
-r.get("/alertas", async (_req, res, next) => {
-  try {
-    const items = await Productos.listarProductosBajoStock(); // ya ordena por faltante DESC
-    // Encola correo solo si hay algo que alertar
-    let notify: { to: string | null; enqueued: boolean; count: number } = {
-      to: null,
-      enqueued: false,
-      count: items.length,
-    };
 
-    if (items.length > 0) {
-      notify = await enqueueLowStockAlertToChief(items);
-    }
-
-    return sendCode(
-      _req,
-      res,
-      AppCode.OK,
-      { items, notify },
-      { httpStatus: 200, message: items.length ? "OK" : "Sin alertas" }
-    );
-  } catch (e) {
-    next(e);
-  }
-});
+// ❗️Opción de solo lectura (no envía correos):
+// r.get("/low-stock", async (_req, res, next) => {
+//   try {
+//     const items = await Productos.listarProductosBajoStock();
+//     return sendCode(_req, res, AppCode.OK, { items }, { httpStatus: 200, message: items.length ? "OK" : "Sin alertas" });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
 
 export default r;

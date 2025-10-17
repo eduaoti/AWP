@@ -419,5 +419,45 @@ END$$;
 
 -- =========================================
 -- (E11) Índices ya creados para precio/joins; no se requiere más DDL.
--- (E12) Alertas de stock no requieren DDL (se resuelven por SELECT).
 -- =========================================
+
+
+-- =========================================
+-- (E12) **NUEVO**: Persistencia de Alertas de Bajo Stock
+-- =========================================
+
+-- Estado de alertas de bajo stock (una activa por producto)
+CREATE TABLE IF NOT EXISTS low_stock_alerts (
+  id                BIGSERIAL PRIMARY KEY,
+  producto_id       BIGINT NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+  first_detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_notified_at  TIMESTAMPTZ,
+  next_notify_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- primera notificación inmediata
+  times_notified    INT NOT NULL DEFAULT 0,
+  active            BOOLEAN NOT NULL DEFAULT TRUE,
+  resolved_at       TIMESTAMPTZ,
+  last_stock_actual  NUMERIC(14,2) NOT NULL DEFAULT 0,
+  last_stock_minimo  NUMERIC(14,2) NOT NULL DEFAULT 0
+);
+
+-- Única alerta activa por producto
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_low_stock_active
+  ON low_stock_alerts (producto_id)
+  WHERE active = TRUE;
+
+-- Para “vencidas” (ready-to-send)
+CREATE INDEX IF NOT EXISTS idx_low_stock_due
+  ON low_stock_alerts (next_notify_at)
+  WHERE active = TRUE;
+
+-- Bitácora de eventos de alerta (opcional)
+CREATE TABLE IF NOT EXISTS low_stock_events (
+  id           BIGSERIAL PRIMARY KEY,
+  producto_id  BIGINT NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+  kind         VARCHAR(16) NOT NULL CHECK (kind IN ('detected','reminder','resolved')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  snapshot     JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_low_stock_events_prod_time
+  ON low_stock_events (producto_id, created_at DESC);
