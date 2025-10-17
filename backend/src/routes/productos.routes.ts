@@ -25,7 +25,10 @@ r.post(
   async (req, res, next) => {
     try {
       await Productos.crearProducto(req.body);
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Producto creado con éxito",
+      });
     } catch (e: any) {
       if (e?.code === "23505") {
         return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
@@ -53,7 +56,10 @@ r.put(
           message: "No encontrado",
         });
       }
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Producto actualizado con éxito",
+      });
     } catch (e: any) {
       if (e?.code === "23505") {
         return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
@@ -77,7 +83,10 @@ r.delete("/codigo/:codigo", async (req, res, next) => {
         message: "No encontrado",
       });
     }
-    return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+    return sendCode(req, res, AppCode.OK, undefined, {
+      httpStatus: 200,
+      message: "Producto eliminado con éxito",
+    });
   } catch (e) {
     next(e);
   }
@@ -113,7 +122,11 @@ r.post(
         nombre,
       });
 
-      return sendCode(req, res, AppCode.OK, data, { httpStatus: 200, message: "OK" });
+      // En listados, podemos dejar un mensaje neutro o afirmar éxito del listado
+      return sendCode(req, res, AppCode.OK, data, {
+        httpStatus: 200,
+        message: "Listado generado con éxito",
+      });
     } catch (e: any) {
       if (e?.status === 400 && e?.code === "PARAMETRO_INVALIDO") {
         return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
@@ -173,7 +186,10 @@ r.put(
           message: "No encontrado",
         });
       }
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Producto actualizado con éxito",
+      });
     } catch (e: any) {
       if (e?.code === "23505") {
         return sendCode(req, res, AppCode.DB_CONSTRAINT, undefined, {
@@ -191,7 +207,6 @@ r.put(
 const UpdateStockMinimoFlexSchema = (IdentificadorSchema as z.ZodObject<any>).safeExtend({
   stock_minimo: z.coerce.number().finite().min(0, "stock_minimo debe ser ≥ 0"),
 });
-
 
 r.put(
   "/stock-minimo",
@@ -211,7 +226,10 @@ r.put(
           message: "No encontrado",
         });
       }
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Stock mínimo actualizado con éxito",
+      });
     } catch (e) {
       next(e);
     }
@@ -239,7 +257,10 @@ r.delete(
           message: "No encontrado",
         });
       }
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Producto eliminado con éxito",
+      });
     } catch (e) {
       next(e);
     }

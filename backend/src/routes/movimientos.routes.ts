@@ -47,7 +47,10 @@ r.get("/", async (req, res, next) => {
             meta: { limit, offset, count: 0 },
           };
 
-    return sendCode(req, res, AppCode.OK, data, { message: "OK" });
+    return sendCode(req, res, AppCode.OK, data, {
+      message: "Movimientos listados con éxito",
+      httpStatus: 200,
+    });
   } catch (e) {
     return next(e);
   }
@@ -64,7 +67,7 @@ r.post(
       // 201 creado, respuesta minimal (sin data)
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 201,
-        message: "OK",
+        message: "Entrada registrada con éxito",
       });
     } catch (e: any) {
       if (e?.status === 404) {
@@ -95,7 +98,7 @@ r.post(
       // 201 creado, respuesta minimal (sin data)
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 201,
-        message: "OK",
+        message: "Salida registrada con éxito",
       });
     } catch (e: any) {
       if (e?.code === "STOCK_INSUFICIENTE") {

@@ -38,7 +38,10 @@ r.get("/", async (req, res, next) => {
             meta: { limit, offset, count: 0 },
           };
 
-    return sendCode(req, res, AppCode.OK, data, { message: "OK" });
+    return sendCode(req, res, AppCode.OK, data, {
+      message: "Proveedores listados con éxito",
+      httpStatus: 200,
+    });
   } catch (e) {
     next(e);
   }
@@ -49,7 +52,10 @@ r.post("/", requireJson, validateBodySimple(CreateProveedorSchema), async (req, 
   try {
     await crearProveedor(req.body);
     // Creado → 201, respuesta minimalista (sin data)
-    return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 201, message: "OK" });
+    return sendCode(req, res, AppCode.OK, undefined, {
+      httpStatus: 201,
+      message: "Proveedor creado con éxito",
+    });
   } catch (e: any) {
     // Choques de unicidad (precheck o índice único en DB)
     const constraint: string | undefined = e?.constraint;

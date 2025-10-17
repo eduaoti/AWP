@@ -131,7 +131,10 @@ r.post("/ventas-producto", requireJson, async (req, res) => {
   try {
     const { desde, hasta } = RangoFechasBody.parse(req.body ?? {});
     const data = await Stats.ventasPorProducto(desde, hasta);
-    return sendCode(req, res, AppCode.OK, data, { httpStatus: 200, message: "OK" });
+    return sendCode(req, res, AppCode.OK, data, {
+      httpStatus: 200,
+      message: "Ventas por producto generadas con éxito",
+    });
   } catch (e: any) {
     if (e?.name === "ZodError") return zodFail(req, res, e);
     return handledAppError(req, res, e);
@@ -146,7 +149,10 @@ r.post("/productos-menor-venta", requireJson, async (req, res) => {
     const base = RangoFechasBody.extend({ limite: LimiteOpt });
     const { desde, hasta, limite } = base.parse(req.body ?? {});
     const data = await Stats.productosMenorVenta(desde, hasta, limite ?? 10);
-    return sendCode(req, res, AppCode.OK, data, { httpStatus: 200, message: "OK" });
+    return sendCode(req, res, AppCode.OK, data, {
+      httpStatus: 200,
+      message: "Productos de menor venta generados con éxito",
+    });
   } catch (e: any) {
     if (e?.name === "ZodError") return zodFail(req, res, e);
     return handledAppError(req, res, e);
@@ -161,7 +167,10 @@ r.post("/productos-extremos", requireJson, async (req, res) => {
     const base = RangoFechasBody.extend({ top: TopOpt });
     const { desde, hasta, top } = base.parse(req.body ?? {});
     const data = await Stats.productosExtremos(desde, hasta, top ?? 10);
-    return sendCode(req, res, AppCode.OK, data, { httpStatus: 200, message: "OK" });
+    return sendCode(req, res, AppCode.OK, data, {
+      httpStatus: 200,
+      message: "Productos extremos generados con éxito",
+    });
   } catch (e: any) {
     if (e?.name === "ZodError") return zodFail(req, res, e);
     return handledAppError(req, res, e);

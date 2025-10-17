@@ -23,7 +23,6 @@ r.get("/", async (req, res, next) => {
 
     const items = await Clientes.listarClientes(limit, offset);
 
-    // Nota: si necesitas total_items/total_pages, habría que exponer un COUNT en el modelo.
     const meta = {
       limit,
       offset,
@@ -31,7 +30,10 @@ r.get("/", async (req, res, next) => {
     };
 
     // ✅ En listar SÍ devolvemos data
-    return sendCode(req, res, AppCode.OK, { items, meta }, { message: "OK" });
+    return sendCode(req, res, AppCode.OK, { items, meta }, {
+      httpStatus: 200,
+      message: "Clientes listados con éxito",
+    });
   } catch (e) {
     return next(e);
   }
@@ -48,7 +50,10 @@ r.post(
     try {
       await Clientes.crearCliente(req.body);
       // ✅ Minimal, sin data, HTTP 200
-      return sendCode(req, res, AppCode.OK, undefined, { httpStatus: 200, message: "OK" });
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 200,
+        message: "Cliente creado con éxito",
+      });
     } catch (e: any) {
       // Conflictos conocidos (duplicados)
       if (
