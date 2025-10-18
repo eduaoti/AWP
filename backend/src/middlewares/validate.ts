@@ -46,6 +46,12 @@ function prettyIssueMessage(issue: ZodIssue): string {
 
   switch (code) {
     case "invalid_type": {
+      // Algunas versiones con z.coerce.number() reportan received = "nan"
+      const receivedLower = String(received ?? "").toLowerCase();
+      if (receivedLower === "nan") {
+        return "Debe ser un número (sin comillas).";
+      }
+
       if (received === "undefined") return "Campo requerido";
       if (received === "null") {
         if (expected === "string")  return "No se permite null; debe ser una cadena.";
@@ -73,7 +79,7 @@ function prettyIssueMessage(issue: ZodIssue): string {
         if (i.type === "array")   return i.exact ? `Debe incluir exactamente ${min} elementos` : `Debe incluir al menos ${min} elementos`;
         if (i.type === "number")  return i.inclusive ? `Debe ser mayor o igual a ${min}` : `Debe ser mayor que ${min}`;
       }
-      // fallbacks por campo
+      // fallback por campo
       if (key === "clave") return "clave → Longitud insuficiente";
       return "Valor demasiado pequeño";
     }
@@ -85,7 +91,7 @@ function prettyIssueMessage(issue: ZodIssue): string {
         if (i.type === "array")   return `No debe exceder ${max} elementos`;
         if (i.type === "number")  return i.inclusive ? `No debe ser mayor que ${max}` : `Debe ser menor que ${max}`;
       }
-      // fallbacks por campo
+      // fallback por campo
       if (key === "clave" && typeof max === "number") return `clave → Máximo ${max} caracteres`;
       return "Valor demasiado grande";
     }

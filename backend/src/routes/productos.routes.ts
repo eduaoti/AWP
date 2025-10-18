@@ -3,7 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   CreateProductoSchema,
-  UpdateProductoSchema, // usado en compat por código
+  UpdateProductoSchema, // usado en compat y para /actualizar (fuerte)
 } from "../schemas/producto.schemas";
 import { validateBodySimple, validateParams } from "../middlewares/validate";
 import { requireJson } from "../middlewares/require-json";
@@ -95,6 +95,12 @@ const IdentificadorSchema = z
 const UpdateStockMinimoFlexSchema = (IdentificadorSchema as z.ZodObject<any>).safeExtend({
   stock_minimo: nonNegativeInt("stock_minimo"),
 });
+
+// 🔥 Cuerpo FUERTE para PUT /productos/actualizar
+// (passthrough para no chocar con la clave/nombre del identificador)
+const UpdateProductoFlexBodySchema = IdentificadorSchema.and(
+  UpdateProductoSchema.passthrough()
+);
 
 /* ===========================================================
    📌 Compat por CÓDIGO (path params)
@@ -229,19 +235,18 @@ r.get("/", (_req, res) => {
 
 /* ===========================================================
    🔄 ENDPOINTS UNIFICADOS: por CLAVE *o* por NOMBRE
-   - Envia exactamente uno de: { clave } o { nombre } (XOR) validado FUERTE
+   - Envía exactamente uno de: { clave } o { nombre } (XOR) + validación FUERTE
    =========================================================== */
 
 // PUT /productos/actualizar  → { clave|nombre, ...campos }
-const UpdateProductoFlexSchema = IdentificadorSchema.passthrough();
-
 r.put(
   "/actualizar",
   requireJson,
-  validateBodySimple(UpdateProductoFlexSchema),
+  validateBodySimple(UpdateProductoFlexBodySchema), // ⬅️ usa esquema fuerte con passthrough
   async (req, res, next) => {
     try {
-      const { clave, nombre, ...data } = req.body as { clave?: string; nombre?: string } & Record<string, unknown>;
+      const { clave, nombre, ...data } =
+        req.body as { clave?: string; nombre?: string } & Record<string, unknown>;
 
       const actualizado = clave
         ? await Productos.actualizarPorClave(clave, data)
@@ -276,7 +281,11 @@ r.put(
   validateBodySimple(UpdateStockMinimoFlexSchema),
   async (req, res, next) => {
     try {
-      const { clave, nombre, stock_minimo } = req.body as { clave?: string; nombre?: string; stock_minimo: number };
+      const { clave, nombre, stock_minimo } = req.body as {
+        clave?: string;
+        nombre?: string;
+        stock_minimo: number;
+      };
 
       const prod = clave
         ? await Productos.actualizarStockMinimoPorClave(clave, stock_minimo)
