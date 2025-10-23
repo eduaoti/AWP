@@ -24,11 +24,10 @@ BEGIN
   SELECT conname INTO chk_name
   FROM pg_constraint
   WHERE conrelid = 'usuarios'::regclass
-    AND contype  = 'c'            -- check
+    AND contype  = 'c'
     AND pg_get_constraintdef(oid) ILIKE '%rol IN (%';
 
   IF chk_name IS NOT NULL THEN
-    -- Volamos el CHECK previo (cualquiera que sea su nombre) y creamos el nuevo
     EXECUTE format('ALTER TABLE usuarios DROP CONSTRAINT %I', chk_name);
     EXECUTE $sql$
       ALTER TABLE usuarios
@@ -223,12 +222,28 @@ CREATE TABLE IF NOT EXISTS productos (
   descripcion     TEXT,                                 -- Descripción
   categoria       VARCHAR(120),                         -- Categoría
   unidad          VARCHAR(40)  NOT NULL,                -- Unidad (pieza, kg, caja, etc.)
-  precio          NUMERIC(14,2) NOT NULL DEFAULT 0,     -- 💲 Precio (para estadísticas E11)
-  stock_minimo    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
-  stock_actual    NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
+  precio          NUMERIC(14,2) NOT NULL DEFAULT 0,     -- 💲 Precio
+  stock_minimo    INTEGER      NOT NULL DEFAULT 0 CHECK (stock_minimo >= 0),
+  stock_actual    INTEGER      NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
   creado_en       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   actualizado_en  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
+
+-- 🔄 MIGRACIÓN DE TIPO: si ya existían como NUMERIC, conviértelos a INTEGER (redondeo)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='productos' AND column_name='stock_minimo' AND data_type <> 'integer'
+  ) THEN
+    -- Asegura no nulos
+    UPDATE productos SET stock_minimo = COALESCE(stock_minimo, 0), stock_actual = COALESCE(stock_actual, 0);
+    -- Cambia tipo
+    ALTER TABLE productos
+      ALTER COLUMN stock_minimo TYPE INTEGER USING ROUND(stock_minimo)::INTEGER,
+      ALTER COLUMN stock_actual TYPE INTEGER USING ROUND(stock_actual)::INTEGER;
+  END IF;
+END$$;
 
 -- (Limpieza de índices antiguos si existen)
 DROP INDEX IF EXISTS uniq_productos_nombre_ci;
@@ -282,7 +297,6 @@ CREATE TABLE IF NOT EXISTS movimientos (
 
 CREATE INDEX IF NOT EXISTS idx_movimientos_producto_fecha ON movimientos (producto_id, fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_movimientos_tipo_fecha     ON movimientos (tipo, fecha DESC);
--- Útiles para reportes/joins
 CREATE INDEX IF NOT EXISTS idx_movimientos_cliente        ON movimientos (cliente_id);
 CREATE INDEX IF NOT EXISTS idx_movimientos_proveedor      ON movimientos (proveedor_id);
 
@@ -299,34 +313,20 @@ CREATE TABLE IF NOT EXISTS proveedores (
 
 CREATE INDEX IF NOT EXISTS idx_proveedores_nombre ON proveedores (nombre);
 
--- 🔄 Limpia índice antiguo si existiera
 DROP INDEX IF EXISTS uniq_proveedores_nombre_ci;
 
--- 🔒 Unicidad por nombre normalizado (case-insensitive + colapso de espacios)
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_nombre_norm
   ON proveedores ( lower(regexp_replace(nombre, '\s+', ' ', 'g')) );
 
--- 🔒 Unicidad por teléfono “solo dígitos” (parcial; permite NULL o vacío repetido)
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_tel_digits
   ON proveedores ( regexp_replace(coalesce(telefono,''), '\D', '', 'g') )
   WHERE telefono IS NOT NULL AND telefono <> '';
 
--- (Opcional) Unicidad estricta combinada
--- CREATE UNIQUE INDEX IF NOT EXISTS uniq_proveedores_nombre_tel_norm
---   ON proveedores (
---     lower(regexp_replace(nombre,  '\s+', ' ', 'g')),
---     regexp_replace(coalesce(telefono,''), '\D', '', 'g')
---   )
---   WHERE telefono IS NOT NULL AND telefono <> '';
-
 -- ==========================
 -- Relación Movimiento–Proveedor (solo aplica a entradas)
 -- ==========================
-
--- FK: si borras un proveedor, los movimientos históricos quedan con proveedor_id NULL.
 DO $$
 BEGIN
-  -- Normalizamos: si existía una FK con otro nombre/política, la recreamos
   IF EXISTS (
     SELECT 1
     FROM information_schema.table_constraints
@@ -336,8 +336,7 @@ BEGIN
   ) THEN
     BEGIN
       ALTER TABLE movimientos DROP CONSTRAINT movimientos_proveedor_id_fkey;
-    EXCEPTION WHEN undefined_object THEN
-      NULL;
+    EXCEPTION WHEN undefined_object THEN NULL;
     END;
   END IF;
 
@@ -346,12 +345,10 @@ BEGIN
       ADD CONSTRAINT movimientos_proveedor_id_fkey
       FOREIGN KEY (proveedor_id) REFERENCES proveedores(id)
       ON DELETE SET NULL;
-  EXCEPTION WHEN duplicate_object THEN
-    NULL;
+  EXCEPTION WHEN duplicate_object THEN NULL;
   END;
 END$$;
 
--- CHECK: asegurar que proveedor_id solo esté informado cuando tipo='entrada'
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -380,19 +377,15 @@ CREATE TABLE IF NOT EXISTS clientes (
 
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes (nombre);
 
--- 🔄 Limpia índice antiguo si existiera
 DROP INDEX IF EXISTS uniq_clientes_nombre_ci;
 
--- 🔒 Unicidad por nombre normalizado (case-insensitive + colapso de espacios)
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_clientes_nombre_norm
   ON clientes ( lower(regexp_replace(nombre, '\s+', ' ', 'g')) );
 
--- 🔒 Unicidad por teléfono “solo dígitos” (parcial; permite NULL o vacío repetido)
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_clientes_tel_digits
   ON clientes ( regexp_replace(coalesce(telefono,''), '\D', '', 'g') )
   WHERE telefono IS NOT NULL AND telefono <> '';
 
--- FK y CHECK para cliente_id en movimientos (solo salidas)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -423,7 +416,7 @@ END$$;
 
 
 -- =========================================
--- (E12) **NUEVO**: Persistencia de Alertas de Bajo Stock
+-- (E12) **NUEVO**: Persistencia + Trigger de Alertas de Bajo Stock
 -- =========================================
 
 -- Estado de alertas de bajo stock (una activa por producto)
@@ -436,9 +429,22 @@ CREATE TABLE IF NOT EXISTS low_stock_alerts (
   times_notified    INT NOT NULL DEFAULT 0,
   active            BOOLEAN NOT NULL DEFAULT TRUE,
   resolved_at       TIMESTAMPTZ,
-  last_stock_actual  NUMERIC(14,2) NOT NULL DEFAULT 0,
-  last_stock_minimo  NUMERIC(14,2) NOT NULL DEFAULT 0
+  last_stock_actual  INTEGER NOT NULL DEFAULT 0,
+  last_stock_minimo  INTEGER NOT NULL DEFAULT 0
 );
+
+-- 🔄 MIGRACIÓN DE TIPO para columnas last_stock_* si venían como NUMERIC
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='low_stock_alerts' AND column_name='last_stock_actual' AND data_type <> 'integer'
+  ) THEN
+    ALTER TABLE low_stock_alerts
+      ALTER COLUMN last_stock_actual TYPE INTEGER USING ROUND(last_stock_actual)::INTEGER,
+      ALTER COLUMN last_stock_minimo TYPE INTEGER USING ROUND(last_stock_minimo)::INTEGER;
+  END IF;
+END$$;
 
 -- Única alerta activa por producto
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_low_stock_active
@@ -461,3 +467,90 @@ CREATE TABLE IF NOT EXISTS low_stock_events (
 
 CREATE INDEX IF NOT EXISTS idx_low_stock_events_prod_time
   ON low_stock_events (producto_id, created_at DESC);
+
+-- 🔔 Trigger: sincroniza alertas y emite NOTIFY en cada INSERT/UPDATE de productos
+CREATE OR REPLACE FUNCTION productos_low_stock_sync()
+RETURNS TRIGGER AS $f$
+DECLARE
+  v_active BOOLEAN;
+  v_payload JSON;
+BEGIN
+  v_active := (NEW.stock_actual < NEW.stock_minimo);
+
+  IF v_active THEN
+    INSERT INTO low_stock_alerts (producto_id, first_detected_at, last_notified_at, next_notify_at,
+                                  times_notified, active, last_stock_actual, last_stock_minimo)
+    VALUES (NEW.id, NOW(), NULL, NOW(), 0, TRUE, NEW.stock_actual, NEW.stock_minimo)
+    ON CONFLICT (producto_id)
+      WHERE low_stock_alerts.active = TRUE
+      DO UPDATE SET
+        last_stock_actual = EXCLUDED.last_stock_actual,
+        last_stock_minimo = EXCLUDED.last_stock_minimo,
+        next_notify_at    = LEAST(low_stock_alerts.next_notify_at, NOW());
+
+    INSERT INTO low_stock_events (producto_id, kind, snapshot)
+    VALUES (NEW.id, 'detected', jsonb_build_object(
+      'stock_actual', NEW.stock_actual,
+      'stock_minimo', NEW.stock_minimo,
+      'nombre', NEW.nombre,
+      'clave', NEW.clave
+    ));
+
+    v_payload := json_build_object(
+      'event', 'low_stock_detected',
+      'producto_id', NEW.id,
+      'clave', NEW.clave,
+      'nombre', NEW.nombre,
+      'stock_actual', NEW.stock_actual,
+      'stock_minimo', NEW.stock_minimo,
+      'at', NOW()
+    );
+    PERFORM pg_notify('low_stock_chan', v_payload::text);
+
+  ELSE
+    UPDATE low_stock_alerts
+       SET active = FALSE,
+           resolved_at = NOW(),
+           last_stock_actual = NEW.stock_actual,
+           last_stock_minimo = NEW.stock_minimo
+     WHERE producto_id = NEW.id
+       AND active = TRUE;
+
+    IF FOUND THEN
+      INSERT INTO low_stock_events (producto_id, kind, snapshot)
+      VALUES (NEW.id, 'resolved', jsonb_build_object(
+        'stock_actual', NEW.stock_actual,
+        'stock_minimo', NEW.stock_minimo,
+        'nombre', NEW.nombre,
+        'clave', NEW.clave
+      ));
+
+      v_payload := json_build_object(
+        'event', 'low_stock_resolved',
+        'producto_id', NEW.id,
+        'clave', NEW.clave,
+        'nombre', NEW.nombre,
+        'stock_actual', NEW.stock_actual,
+        'stock_minimo', NEW.stock_minimo,
+        'at', NOW()
+      );
+      PERFORM pg_notify('low_stock_chan', v_payload::text);
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$f$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_productos_low_stock_sync'
+  ) THEN
+    CREATE TRIGGER trg_productos_low_stock_sync
+    AFTER INSERT OR UPDATE OF stock_actual, stock_minimo, nombre, clave
+    ON productos
+    FOR EACH ROW
+    EXECUTE PROCEDURE productos_low_stock_sync();
+  END IF;
+END$$;

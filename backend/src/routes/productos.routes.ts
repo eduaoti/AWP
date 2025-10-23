@@ -11,6 +11,7 @@ import * as Productos from "../models/producto.model";
 import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
 import { claveStrict, safeText, nonNegativeInt } from "../schemas/_helpers";
+import * as LowStock from "../services/lowStock"; // ⬅️ NUEVO
 
 const r = Router();
 
@@ -114,6 +115,12 @@ r.post(
   async (req, res, next) => {
     try {
       await Productos.crearProducto(req.body);
+
+      // Si se crea con stock bajo desde el inicio, dispara alerta inmediata
+      try {
+        await LowStock.checkAndNotifyByClave(req.body.clave);
+      } catch {}
+
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Producto creado con éxito",
@@ -146,6 +153,12 @@ r.put(
           message: "No encontrado",
         });
       }
+
+      // ⬅️ INSTANT ALERT: revisa y notifica al momento
+      try {
+        await LowStock.checkAndNotifyByClave(codigo);
+      } catch {}
+
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Producto actualizado con éxito",
@@ -176,6 +189,7 @@ r.delete(
           message: "No encontrado",
         });
       }
+      // (La FK ON DELETE CASCADE limpiará alertas activas de ese producto)
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Producto eliminado con éxito",
@@ -235,7 +249,6 @@ r.get("/", (_req, res) => {
 
 /* ===========================================================
    🔄 ENDPOINTS UNIFICADOS: por CLAVE *o* por NOMBRE
-   - Envía exactamente uno de: { clave } o { nombre } (XOR) + validación FUERTE
    =========================================================== */
 
 // PUT /productos/actualizar  → { clave|nombre, ...campos }
@@ -258,6 +271,13 @@ r.put(
           message: "No encontrado",
         });
       }
+
+      // ⬅️ INSTANT ALERT
+      try {
+        if (clave) await LowStock.checkAndNotifyByClave(clave);
+        else await LowStock.checkAndNotifyByNombre(nombre as string);
+      } catch {}
+
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Producto actualizado con éxito",
@@ -297,6 +317,13 @@ r.put(
           message: "No encontrado",
         });
       }
+
+      // ⬅️ INSTANT ALERT
+      try {
+        if (clave) await LowStock.checkAndNotifyByClave(clave);
+        else await LowStock.checkAndNotifyByNombre(nombre as string);
+      } catch {}
+
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Stock mínimo actualizado con éxito",
@@ -326,6 +353,7 @@ r.delete(
           message: "No encontrado",
         });
       }
+      // (ON DELETE CASCADE para alertas activas)
       return sendCode(req, res, AppCode.OK, undefined, {
         httpStatus: 200,
         message: "Producto eliminado con éxito",
@@ -337,7 +365,7 @@ r.delete(
 );
 
 /* ===========================================================
-   📴 Envío de alertas: manejado por worker (sin endpoints write)
+   📴 Envío de alertas: ahora también instantáneo (lowStock.ts)
    =========================================================== */
 
 export default r;
