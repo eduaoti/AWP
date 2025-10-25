@@ -1,3 +1,4 @@
+// src/schemas/listado.schemas.ts
 import { z } from "zod";
 
 export const listarUsuariosSchema = z.object({

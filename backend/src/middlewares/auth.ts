@@ -7,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 // Payload que esperamos en NUESTROS JWTs
 export interface AuthPayload {
   sub: number;                     // id de usuario
-  rol: "admin" | "editor" | "lector";
+  rol: "admin" | "editor" | "lector" | "jefe_inventario";
   email?: string;
   jti?: string;                    // opcional: id de sesión
   exp?: number;                    // unix seconds
@@ -20,7 +20,7 @@ function isAuthPayload(x: unknown): x is AuthPayload {
   const hasSub = typeof o.sub === "number" || typeof o.sub === "string";
   const hasRol =
     typeof o.rol === "string" &&
-    (o.rol === "admin" || o.rol === "editor" || o.rol === "lector");
+    (o.rol === "admin" || o.rol === "editor" || o.rol === "lector" || o.rol === "jefe_inventario");
   return hasSub && hasRol;
 }
 

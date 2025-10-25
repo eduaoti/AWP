@@ -4,7 +4,7 @@ import { emailStrict, nombrePersona } from "./common";
 import { strongPassword } from "./password";
 
 /* ===== Roles permitidos ===== */
-export const rolEnum = z.enum(["admin", "editor", "lector"]);
+export const rolEnum = z.enum(["admin", "editor", "lector", "jefe_inventario"]);
 
 /* ===== Password sin comillas simples ===== */
 const passwordSinComillas = strongPassword.regex(/^[^']*$/, {

@@ -1,13 +1,24 @@
+# ---------- Global / en cualquier carpeta ----------
 # Dependencias
-node_modules/
+**/node_modules/
 
 # Variables de entorno
-.env
+**/.env
 
 # Logs
 *.log
+**/*.log
 
 # Build de TypeScript
-dist/
+**/dist/
 
+# ---------- Solo en la raíz (afuera de /backend) ----------
+/node_modules/
+/dist/
+/.env
+/pruebas_auth.jmx
 
+# Mantener README en la raíz
+!/README
+!/README.md
+!/README.*

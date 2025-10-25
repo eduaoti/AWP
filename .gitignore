@@ -1,0 +1,47 @@
+# --- Ignora lo común en cualquier ruta ---
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Variables de entorno
+.env
+.env.*
+
+# --- Ignorar TODO en la raíz excepto lo que whitelisteamos abajo ---
+/*
+
+# Mantener el propio .gitignore y el README
+!/.gitignore
+!/README.md
+
+# Mantener archivos base del proyecto en la raíz
+!/package.json
+!/package-lock.json
+!/pnpm-lock.yaml
+!/yarn.lock
+!/tsconfig.json
+!/tsconfig.*.json
+!/eslint.config.*
+!/.eslintrc*
+!/.prettierrc*
+!/.npmrc
+!/.nvmrc
+!/vite.config.*
+!/nest-cli.json
+!/nodemon.json
+
+# Mantener carpetas principales del proyecto
+!/src/
+!/public/
+!/config/
+!/prisma/
+!/migrations/
+!/scripts/
+!/assets/
+
+# Dentro de las carpetas mantenidas, vuelve a ignorar lo no deseado
+src/**/node_modules/
+src/**/dist/
+public/**/node_modules/
+public/**/dist/

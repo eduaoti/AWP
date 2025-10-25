@@ -1,45 +1,93 @@
-// src/routes/movimientos.routes.ts
 import { Router } from "express";
-import { validateBodySimple } from "../middlewares/validate";
-import { MovimientoEntradaSchema, MovimientoSalidaSchema } from "../schemas/movimiento.schemas";
-import { registrarEntrada, registrarSalida, listarMovimientos } from "../models/movimiento.model";
+import { z } from "zod";
+import { validateBodySimple, validateQuery } from "../middlewares/validate";
+import { requireJson } from "../middlewares/require-json";
+import { MovimientoSchema } from "../schemas/movimiento.schemas";
+import { registrarMovimiento, listarMovimientos } from "../models/movimiento.model";
+import { sendCode } from "../status/respond";
+import { AppCode } from "../status/codes";
 
 const r = Router();
 
-/** GET /movimientos (opcional para auditar) */
-r.get("/", async (req, res, next) => {
-  try {
-    const limit = Number(req.query.limit ?? 50);
-    const offset = Number(req.query.offset ?? 0);
-    const data = await listarMovimientos(limit, offset);
-    res.json(data);
-  } catch (e) { next(e); }
-});
+/* ===========================================================
+   🔎 Validación de query para listado
+   =========================================================== */
+const MovimientosListQuery = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(1000).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .strict();
 
-/** POST /movimientos/entrada */
-r.post("/entrada", validateBodySimple(MovimientoEntradaSchema), async (req, res, next) => {
+/** GET /movimientos (listar con data) */
+r.get("/", validateQuery(MovimientosListQuery), async (req, res, next) => {
   try {
-    const result = await registrarEntrada(req.body);
-    res.status(201).json(result);
-  } catch (e: any) {
-    if (e?.status) return res.status(e.status).json({ mensaje: e.message, code: e.code });
-    next(e);
+    const { limit, offset } = req.query as unknown as { limit: number; offset: number };
+    const raw = await listarMovimientos(limit, offset);
+
+    const data =
+      raw && typeof raw === "object" && "items" in (raw as any) && "meta" in (raw as any)
+        ? raw
+        : Array.isArray(raw)
+        ? { items: raw, meta: { limit, offset, count: raw.length } }
+        : { items: [], meta: { limit, offset, count: 0 } };
+
+    return sendCode(req, res, AppCode.OK, data, {
+      message: "Movimientos listados con éxito",
+      httpStatus: 200,
+    });
+  } catch (e) {
+    return next(e);
   }
 });
 
-/** POST /movimientos/salida */
-r.post("/salida", validateBodySimple(MovimientoSalidaSchema), async (req, res, next) => {
-  try {
-    const result = await registrarSalida(req.body);
-    res.status(201).json(result);
-  } catch (e: any) {
-    // Regla: si cantidad > stock_actual
-    if (e?.code === "STOCK_INSUFICIENTE") {
-      return res.status(400).json({ mensaje: e.message, code: e.code });
+/* ===========================================================
+   ✅ POST /movimientos  (UNIFICADO con flag 'entrada')
+   Body:
+   {
+     "entrada": true | 1 | false | 0,
+     "producto_clave": "SKU-123",
+     "cantidad": 5,
+     "documento"?: "...",
+     "responsable"?: "...",
+     "fecha"?: "2025-10-24T10:00:00Z",
+     "proveedor_id"?: 1,   // solo si entrada=true
+     "cliente_id"?: 20     // requerido si entrada=false
+   }
+   =========================================================== */
+r.post(
+  "/",
+  requireJson,
+  validateBodySimple(MovimientoSchema),
+  async (req, res, next) => {
+    try {
+      await registrarMovimiento(req.body);
+      return sendCode(req, res, AppCode.OK, undefined, {
+        httpStatus: 201,
+        message: "Movimiento registrado con éxito",
+      });
+    } catch (e: any) {
+      if (e?.code === "STOCK_INSUFICIENTE") {
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message || "Stock insuficiente",
+        });
+      }
+      if (e?.status === 404) {
+        return sendCode(req, res, AppCode.NOT_FOUND, undefined, {
+          httpStatus: 200,
+          message: e.message || "No encontrado",
+        });
+      }
+      if (e?.status === 400) {
+        return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
+          httpStatus: 200,
+          message: e.message || "Validación fallida",
+        });
+      }
+      return next(e);
     }
-    if (e?.status) return res.status(e.status).json({ mensaje: e.message, code: e.code });
-    next(e);
   }
-});
+);
 
 export default r;

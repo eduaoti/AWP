@@ -1,3 +1,4 @@
+//Usuario.dto.ts
 export const toUsuarioPublic = (row: any) => ({
   id: row.id,
   nombre: row.nombre,

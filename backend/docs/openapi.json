@@ -2,23 +2,25 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AWP MVP API",
-    "version": "1.0.0",
-    "description": "API básica para usuarios y auth con validación estricta y respuesta estándar {codigo, mensaje, data}"
+    "version": "1.2.1",
+    "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}. Las alertas de bajo stock se gestionan automáticamente por un worker; la API no envía correos."
   },
   "tags": [
     { "name": "Auth", "description": "Login y validación OTP" },
     { "name": "Recovery", "description": "Recuperación de contraseña" },
     { "name": "Usuarios", "description": "Gestión de usuarios" },
-    { "name": "Productos", "description": "Administración de catálogo de productos" },
-    { "name": "Movimientos", "description": "Entradas y salidas de inventario" },
-    { "name": "Proveedores", "description": "Directorio de proveedores" }
+    { "name": "Productos", "description": "Administración de productos" },
+    { "name": "Movimientos", "description": "Entradas y salidas (JSON-only, endpoint único)" },
+    { "name": "Proveedores", "description": "Directorio de proveedores" },
+    { "name": "Clientes", "description": "Directorio de clientes" },
+    { "name": "Estadísticas", "description": "Reportes (JSON-only)" }
   ],
   "paths": {
     "/auth/login": {
       "post": {
+        "operationId": "authLogin",
         "tags": ["Auth"],
-        "summary": "Login con email y password (paso 1)",
-        "description": "Si el usuario tiene OTP habilitado, devuelve un preAuth y, si no se puede enviar el correo OTP, también un PIN offline de 1 minuto. La ubicación se infiere automáticamente en el servidor (no enviarla en el body).",
+        "summary": "Login (paso 1)",
         "requestBody": {
           "required": true,
           "content": {
@@ -31,27 +33,18 @@
                   "password": { "type": "string", "minLength": 8 }
                 },
                 "additionalProperties": false
-              },
-              "example": {
-                "email": "edu@test.com",
-                "password": "Abcdef12!"
               }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Login" },
-          "401": { "$ref": "#/components/responses/RespError" },
-          "429": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/login/otp": {
       "post": {
+        "operationId": "authLoginOtp",
         "tags": ["Auth"],
-        "summary": "Verificar OTP/backup y emitir token final (paso 2)",
-        "description": "Verifica el código TOTP o un backup code. La ubicación se infiere automáticamente en el servidor (no enviarla en el body).",
+        "summary": "Verificar OTP (paso 2)",
         "requestBody": {
           "required": true,
           "content": {
@@ -65,41 +58,18 @@
                   "deviceId": { "type": "string" }
                 },
                 "additionalProperties": false
-              },
-              "example": {
-                "preAuth": "eyJhbGciOi...",
-                "code": "123456",
-                "deviceId": "ios-iphone-15"
               }
             }
           }
         },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ApiOk_Login" },
-                "example": {
-                  "codigo": 0,
-                  "mensaje": "OK",
-                  "path": "/auth/login/otp",
-                  "timestamp": "2025-01-01T10:00:00Z",
-                  "data": { "requiresOtp": false, "token": "eyJhbGciOi..." }
-                }
-              }
-            }
-          },
-          "401": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/login/offline": {
       "post": {
+        "operationId": "authLoginOffline",
         "tags": ["Auth"],
-        "summary": "Canjear PIN de emergencia (sin correo) - un minuto / un solo uso",
-        "description": "Paso 2 alterno cuando no se puede recibir OTP por correo. Requiere preAuth del paso 1 y el offlineJwt+pin generados. La ubicación se infiere automáticamente en el servidor (no enviarla en el body).",
+        "summary": "Canjear PIN offline (paso 2 alterno)",
         "requestBody": {
           "required": true,
           "content": {
@@ -114,43 +84,18 @@
                   "deviceId": { "type": "string" }
                 },
                 "additionalProperties": false
-              },
-              "example": {
-                "preAuth": "eyJhbGciOi...",
-                "offlineJwt": "eyJhbGciOi...offline...",
-                "pin": "394812",
-                "deviceId": "android-pixel-8"
               }
             }
           }
         },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ApiOk_Login" },
-                "example": {
-                  "codigo": 0,
-                  "mensaje": "OK",
-                  "path": "/auth/login/offline",
-                  "timestamp": "2025-01-01T10:00:00Z",
-                  "data": { "requiresOtp": false, "token": "eyJhbGciOi..." }
-                }
-              }
-            }
-          },
-          "401": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/otp/setup/start": {
       "post": {
+        "operationId": "otpSetupStart",
         "tags": ["Auth"],
-        "summary": "Iniciar configuración de OTP (Google Authenticator) con preAuth",
-        "description": "Usa el preAuth devuelto por /auth/login. No requiere Bearer.",
-        "security": [],
+        "summary": "Iniciar configuración de OTP (usa preAuth en body)",
         "requestBody": {
           "required": true,
           "content": {
@@ -158,57 +103,45 @@
               "schema": {
                 "type": "object",
                 "required": ["preAuth"],
-                "properties": {
-                  "preAuth": { "type": "string", "description": "JWT preAuth de /auth/login" }
-                },
+                "properties": { "preAuth": { "type": "string" } },
                 "additionalProperties": false
-              },
-              "example": { "preAuth": "eyJhbGciOi..." }
+              }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_OtpSetupStart" },
-          "401": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/otp/setup/confirm": {
       "post": {
+        "operationId": "otpSetupConfirm",
         "tags": ["Auth"],
-        "summary": "Confirmar OTP (guardar secreto + generar backup codes) con preAuth",
-        "description": "Usa el preAuth devuelto por /auth/login. No requiere Bearer.",
-        "security": [],
+        "summary": "Confirmar configuración de OTP (usa preAuth en body)",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["preAuth", "secret", "code"],
+                "required": ["preAuth", "code", "secret"],
                 "properties": {
-                  "preAuth": { "type": "string", "description": "JWT preAuth de /auth/login" },
-                  "secret": { "type": "string", "minLength": 16, "description": "Secreto base32" },
-                  "code": { "type": "string", "minLength": 6, "maxLength": 8 }
+                  "preAuth": { "type": "string" },
+                  "code": { "type": "string", "minLength": 6, "maxLength": 8 },
+                  "secret": { "type": "string" }
                 },
                 "additionalProperties": false
-              },
-              "example": { "preAuth": "eyJhbGciOi...", "secret": "JBSWY3DPEHPK3PXP", "code": "123456" }
+              }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_OtpSetupConfirm" },
-          "401": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/recovery/request": {
       "post": {
+        "operationId": "recoveryRequest",
         "tags": ["Recovery"],
-        "summary": "Solicitar recuperación de contraseña (envía link al correo)",
+        "summary": "Solicitar recuperación de contraseña",
         "requestBody": {
           "required": true,
           "content": {
@@ -218,21 +151,18 @@
                 "required": ["email"],
                 "properties": { "email": { "type": "string", "format": "email" } },
                 "additionalProperties": false
-              },
-              "example": { "email": "edu@test.com" }
+              }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Generic" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/auth/recovery/confirm": {
       "post": {
+        "operationId": "recoveryConfirm",
         "tags": ["Recovery"],
-        "summary": "Confirmar recuperación de contraseña (token + nueva contraseña)",
+        "summary": "Confirmar recuperación de contraseña",
         "requestBody": {
           "required": true,
           "content": {
@@ -241,76 +171,120 @@
                 "type": "object",
                 "required": ["token", "newPassword"],
                 "properties": {
-                  "token": { "type": "string", "minLength": 20 },
+                  "token": { "type": "string" },
                   "newPassword": { "type": "string", "minLength": 8 }
                 },
                 "additionalProperties": false
-              },
-              "example": { "token": "abc123...", "newPassword": "NuevoPass1!" }
-            }
-          }
-        },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Generic" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
-      }
-    },
-    "/usuarios/nuevo": {
-      "post": {
-        "tags": ["Usuarios"],
-        "summary": "Crear un nuevo usuario",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/UsuarioCrear" },
-              "example": {
-                "nombre": "Edu Ortiz",
-                "email": "edu@test.com",
-                "password": "Abcdef12!",
-                "rol": "editor"
               }
             }
           }
         },
-        "responses": {
-          "201": { "$ref": "#/components/responses/RespOk_UsuarioPublico" },
-          "400": { "$ref": "#/components/responses/RespError" },
-          "409": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+    "/auth/sessions": {
+      "get": {
+        "operationId": "authListSessions",
+        "tags": ["Auth"],
+        "summary": "Listar mis sesiones (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_SessionsList" } }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "authLogout",
+        "tags": ["Auth"],
+        "summary": "Cerrar sesión actual (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Logout" } }
+      }
+    },
+    "/auth/sessions/revoke": {
+      "post": {
+        "operationId": "authRevokeSession",
+        "tags": ["Auth"],
+        "summary": "Revocar una sesión por jti (requireAuth)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["jti"],
+                "properties": { "jti": { "type": "string", "format": "uuid" } },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Revoke" } }
+      }
+    },
+    "/auth/logout-all": {
+      "post": {
+        "operationId": "authLogoutAll",
+        "tags": ["Auth"],
+        "summary": "Cerrar todas mis sesiones (requireAuth)",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_LogoutAll" } }
+      }
+    },
+
+    "/usuarios/nuevo": {
+      "post": {
+        "operationId": "usuariosCrear",
+        "tags": ["Usuarios"],
+        "summary": "Crear usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre", "email", "password", "rol"],
+                "properties": {
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/usuarios/actualizar": {
       "put": {
+        "operationId": "usuariosActualizar",
         "tags": ["Usuarios"],
-        "summary": "Actualizar un usuario existente",
+        "summary": "Actualizar usuario",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UsuarioActualizar" },
-              "example": {
-                "id": 1,
-                "nombre": "Edu Actualizado",
-                "email": "edu@test.com",
-                "rol": "admin"
+              "schema": {
+                "type": "object",
+                "required": ["id", "nombre", "email", "rol"],
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1 },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "email": { "type": "string", "format": "email" },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
               }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_UsuarioPublico" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/usuarios/eliminar": {
       "post": {
+        "operationId": "usuariosEliminar",
         "tags": ["Usuarios"],
-        "summary": "Eliminar un usuario",
+        "summary": "Eliminar usuario",
         "requestBody": {
           "required": true,
           "content": {
@@ -318,280 +292,435 @@
               "schema": {
                 "type": "object",
                 "required": ["id"],
-                "properties": { "id": { "type": "integer", "example": 1 } },
+                "properties": { "id": { "type": "integer", "minimum": 1 } },
                 "additionalProperties": false
               }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Eliminar" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
     "/usuarios": {
       "get": {
+        "operationId": "usuariosListar",
         "tags": ["Usuarios"],
         "summary": "Listar usuarios",
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_UsuarioPublicoArray" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
       }
     },
+
     "/productos": {
-      "get": {
-        "tags": ["Productos"],
-        "summary": "Listar productos",
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_ProductoArray" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
-      },
       "post": {
+        "operationId": "productosCrear",
         "tags": ["Productos"],
         "summary": "Crear producto",
+        "description": "Validaciones fuertes: clave estricta sin '@' ni símbolos fuera de [A-Za-z0-9-], nombre 3–120 sin HTML/JS, precio con 2 decimales, stock entero ≥ 0.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProductoCrear" },
+              "schema": {
+                "type": "object",
+                "required": ["clave", "nombre", "unidad", "categoria", "precio", "stock_minimo", "stock_actual"],
+                "properties": {
+                  "clave": {
+                    "type": "string",
+                    "maxLength": 10,
+                    "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$",
+                    "description": "Solo letras/números/guiones, sin iniciar/terminar con -, sin \"--\"."
+                  },
+                  "nombre": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 120,
+                    "pattern": "^(?!.*(<|>|&lt;|&gt;|script|onerror|onload|onclick|onmouseover|javascript:)).*$",
+                    "description": "Texto seguro (sin HTML/JS)."
+                  },
+                  "unidad": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "pattern": "^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ./%-]+$"
+                  },
+                  "descripcion": { "type": "string", "maxLength": 240 },
+                  "categoria": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60,
+                    "pattern": "^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,&/()-]+$"
+                  },
+                  "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                  "stock_minimo": { "type": "integer", "minimum": 0 },
+                  "stock_actual": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+              },
               "example": {
-                "codigo": "PRD-001",
-                "nombre": "Café molido 500g",
+                "clave": "SKU-001",
+                "nombre": "Guantes de nitrilo",
                 "unidad": "pieza",
-                "descripcion": "Café arábica",
-                "categoria": "Abarrotes",
+                "descripcion": "Caja con 100 piezas",
+                "categoria": "EPP",
+                "precio": 45.5,
                 "stock_minimo": 10,
-                "stock_actual": 25
+                "stock_actual": 12
               }
             }
           }
         },
-        "responses": {
-          "201": { "$ref": "#/components/responses/RespOk_Producto" },
-          "409": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "/productos/{id}": {
+    "/productos/listar": {
+      "post": {
+        "operationId": "productosListarPostJson",
+        "tags": ["Productos"],
+        "summary": "Listar (POST JSON): por clave, por nombre o todos",
+        "description": "Si clave==\"\" no filtra por clave; si nombre==\"\" no filtra por nombre; si ambos \"\", lista todos. Coincidencia exacta case-insensitive para clave y nombre.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": { "type": "string", "maxLength": 10, "pattern": "^(|(?!(?:-)|.*--)[A-Za-z0-9-]+(?<!-))$" },
+                  "nombre": { "type": "string", "maxLength": 120 },
+                  "page": { "type": "integer", "minimum": 1, "default": 1 },
+                  "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+                  "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
+                  "sort_dir": { "type": "string", "enum": ["asc", "desc"] }
+                },
+                "additionalProperties": false
+              },
+              "example": { "clave": "", "nombre": "", "page": 1, "per_page": 20, "sort_by": "nombre", "sort_dir": "asc" }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosList" } }
+      }
+    },
+    "/productos/low-stock": {
       "get": {
+        "operationId": "productosLowStockList",
         "tags": ["Productos"],
-        "summary": "Obtener producto por id",
-        "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
-        ],
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Producto" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
-      },
+        "summary": "Listar productos con bajo stock (solo lectura)",
+        "description": "Devuelve productos con stock_actual < stock_minimo. No envía correos; las notificaciones automáticas las maneja el worker.",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosLowStock" } }
+      }
+    },
+    "/productos/actualizar": {
       "put": {
+        "operationId": "productoActualizarClaveONombre",
         "tags": ["Productos"],
-        "summary": "Actualizar producto",
-        "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
-        ],
+        "summary": "Actualizar por clave o por nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}, más los campos a actualizar.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProductoActualizar" },
-              "example": { "nombre": "Café molido premium 500g", "categoria": "Gourmet" }
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave"],
+                    "properties": {
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "unidad": { "type": "string", "maxLength": 30 },
+                      "descripcion": { "type": "string", "maxLength": 240 },
+                      "categoria": { "type": "string", "maxLength": 60 },
+                      "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 },
+                      "stock_actual": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre"],
+                    "properties": {
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "unidad": { "type": "string", "maxLength": 30 },
+                      "descripcion": { "type": "string", "maxLength": 240 },
+                      "categoria": { "type": "string", "maxLength": 60 },
+                      "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 },
+                      "stock_actual": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001", "precio": 99.9 } },
+                "porNombre": { "value": { "nombre": "Guantes", "categoria": "EPP" } }
+              }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Producto" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "/productos/{id}/stock-minimo": {
+    "/productos/stock-minimo": {
       "put": {
+        "operationId": "productoStockMinimoClaveONombre",
         "tags": ["Productos"],
-        "summary": "Actualizar stock mínimo",
-        "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer" } }
-        ],
+        "summary": "Actualizar stock mínimo por clave o nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}, más {stock_minimo}.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["stock_minimo"],
-                "properties": { "stock_minimo": { "type": "number", "minimum": 0 } },
-                "additionalProperties": false
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave", "stock_minimo"],
+                    "properties": {
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "stock_minimo": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre", "stock_minimo"],
+                    "properties": {
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
               },
-              "example": { "stock_minimo": 15 }
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001", "stock_minimo": 10 } },
+                "porNombre": { "value": { "nombre": "Guantes", "stock_minimo": 8 } }
+              }
             }
           }
         },
-        "responses": {
-          "200": { "$ref": "#/components/responses/RespOk_Producto" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "/movimientos/entrada": {
-      "post": {
-        "tags": ["Movimientos"],
-        "summary": "Registrar entrada de productos (Stock_Actual += Cantidad)",
+    "/productos/eliminar": {
+      "delete": {
+        "operationId": "productoEliminarClaveONombre",
+        "tags": ["Productos"],
+        "summary": "Eliminar por clave o por nombre (JSON-only, unificado)",
+        "description": "Envía exactamente UNO de: {clave} o {nombre}.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": ["producto_id", "cantidad"],
-                "properties": {
-                  "producto_id": { "type": "integer", "minimum": 1 },
-                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-                  "documento": { "type": "string" },
-                  "responsable": { "type": "string" },
-                  "fecha": { "type": "string", "format": "date-time" },
-                  "proveedor_id": { "type": "integer", "minimum": 1 }
-                },
-                "additionalProperties": false
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["clave"],
+                    "properties": { "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" } },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["nombre"],
+                    "properties": { "nombre": { "type": "string", "minLength": 3, "maxLength": 120 } },
+                    "additionalProperties": false
+                  }
+                ]
               },
-              "example": { "producto_id": 1, "cantidad": 10, "documento": "OC-2025-001", "responsable": "Almacén", "proveedor_id": 3 }
+              "examples": {
+                "porClave": { "value": { "clave": "SKU-001" } },
+                "porNombre": { "value": { "nombre": "Guantes" } }
+              }
             }
           }
         },
-        "responses": {
-          "201": { "$ref": "#/components/responses/RespOk_MovimientoOperacion" },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "/movimientos/salida": {
+
+    "/movimientos": {
       "post": {
+        "operationId": "movimientosUnificado",
         "tags": ["Movimientos"],
-        "summary": "Registrar salida de productos (valida stock suficiente; Stock_Actual -= Cantidad)",
+        "summary": "Registrar movimiento (UNIFICADO, por clave, con flag 'entrada')",
+        "description": "Usa 'entrada' para indicar el tipo: true/1 = entrada; false/0 = salida. Para 'salida' debes incluir cliente_id; para 'entrada' puedes incluir proveedor_id.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["producto_id", "cantidad"],
-                "properties": {
-                  "producto_id": { "type": "integer", "minimum": 1 },
-                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-                  "documento": { "type": "string" },
-                  "responsable": { "type": "string" },
-                  "fecha": { "type": "string", "format": "date-time" }
+              "schema": { "$ref": "#/components/schemas/MovimientoInput" },
+              "examples": {
+                "entrada": {
+                  "value": {
+                    "entrada": true,
+                    "producto_clave": "SKU-001",
+                    "cantidad": 5,
+                    "proveedor_id": 1,
+                    "documento": "OC-1001",
+                    "responsable": "Juan"
+                  }
                 },
-                "additionalProperties": false
-              },
-              "example": { "producto_id": 1, "cantidad": 5, "documento": "FAC-1001", "responsable": "Cajero" }
-            }
-          }
-        },
-        "responses": {
-          "201": { "$ref": "#/components/responses/RespOk_MovimientoOperacion" },
-          "400": {
-            "description": "Stock insuficiente",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ApiError" },
-                "example": {
-                  "codigo": 1,
-                  "mensaje": "Cantidad solicitada excede el stock disponible",
-                  "path": "/movimientos/salida",
-                  "timestamp": "2025-01-01T10:00:00Z"
+                "salida": {
+                  "value": {
+                    "entrada": 0,
+                    "producto_clave": "SKU-001",
+                    "cantidad": 2,
+                    "cliente_id": 10,
+                    "documento": "FAC-555",
+                    "responsable": "Ana"
+                  }
                 }
               }
             }
-          },
-          "404": { "$ref": "#/components/responses/RespError" },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
+
     "/proveedores": {
       "get": {
+        "operationId": "proveedoresListar",
         "tags": ["Proveedores"],
         "summary": "Listar proveedores",
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Proveedor" } }
-              }
-            }
-          },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ProveedoresList" } }
       },
       "post": {
+        "operationId": "proveedoresCrear",
         "tags": ["Proveedores"],
-        "summary": "Registrar proveedor",
+        "summary": "Crear proveedor",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProveedorCrear" },
-              "example": { "nombre": "Distribuidora Central", "telefono": "477-555-1234", "contacto": "Laura Pérez" }
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 160 },
+                  "telefono": { "type": "string" },
+                  "contacto": { "type": "string", "maxLength": 120 }
+                },
+                "additionalProperties": false
+              }
             }
           }
         },
-        "responses": {
-          "201": {
-            "description": "Creado",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Proveedor" } } }
-          },
-          "default": { "$ref": "#/components/responses/RespError" }
-        }
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+    "/clientes": {
+      "get": {
+        "operationId": "clientesListar",
+        "tags": ["Clientes"],
+        "summary": "Listar clientes",
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_ClientesList" } }
+      },
+      "post": {
+        "operationId": "clientesCrear",
+        "tags": ["Clientes"],
+        "summary": "Crear cliente",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 160 },
+                  "telefono": { "type": "string" },
+                  "contacto": { "type": "string", "maxLength": 120 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+
+    "/estadisticas/ventas-producto": {
+      "post": {
+        "operationId": "estadisticasVentasProducto",
+        "tags": ["Estadísticas"],
+        "summary": "Ventas por producto (JSON-only)",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" }
+                },
+                "additionalProperties": false
+              },
+              "example": { "desde": "2025-01-01T00:00:00Z", "hasta": "2025-02-01T00:00:00Z" }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_VentasProducto" } }
+      }
+    },
+    "/estadisticas/productos-menor-venta": {
+      "post": {
+        "operationId": "estadisticasProductosMenorVenta",
+        "tags": ["Estadísticas"],
+        "summary": "Productos de menor venta (JSON-only)",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "limite": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_MenorVenta" } }
+      }
+    },
+    "/estadisticas/productos-extremos": {
+      "post": {
+        "operationId": "estadisticasProductosExtremos",
+        "tags": ["Estadísticas"],
+        "summary": "Más barato y más caro dentro del top N (JSON-only)",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "desde": { "type": "string", "format": "date-time" },
+                  "hasta": { "type": "string", "format": "date-time" },
+                  "top": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10 }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Estad_Extremos" } }
       }
     }
   },
   "components": {
-    "securitySchemes": {
-      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
-    },
     "schemas": {
-      "OfflineFallback": {
-        "type": "object",
-        "properties": {
-          "pin": { "type": "string", "description": "PIN numérico temporal (solo un minuto)" },
-          "offlineJwt": { "type": "string", "description": "JWT corto que enlaza el PIN con el usuario y jti" },
-          "expiresAt": { "type": "string", "format": "date-time", "description": "Fecha/hora de expiración del PIN" }
-        },
-        "required": ["pin", "offlineJwt", "expiresAt"],
-        "additionalProperties": false
-      },
-      "UsuarioCrear": {
-        "type": "object",
-        "required": ["nombre", "email", "password", "rol"],
-        "properties": {
-          "nombre": { "type": "string", "minLength": 2, "maxLength": 80 },
-          "email": { "type": "string", "format": "email" },
-          "password": { "type": "string", "minLength": 8 },
-          "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
-        },
-        "additionalProperties": false
-      },
-      "UsuarioActualizar": {
-        "type": "object",
-        "required": ["id", "nombre", "email", "rol"],
-        "properties": {
-          "id": { "type": "integer" },
-          "nombre": { "type": "string" },
-          "email": { "type": "string", "format": "email" },
-          "rol": { "type": "string", "enum": ["admin", "editor", "lector"] }
-        },
-        "additionalProperties": false
-      },
       "UsuarioPublico": {
         "type": "object",
         "properties": {
@@ -606,243 +735,434 @@
         "type": "object",
         "properties": {
           "id": { "type": "integer" },
-          "codigo": { "type": "string" },
+          "clave": { "type": "string" },
           "nombre": { "type": "string" },
           "descripcion": { "type": "string", "nullable": true },
           "categoria": { "type": "string", "nullable": true },
           "unidad": { "type": "string" },
-          "stock_minimo": { "type": "number" },
-          "stock_actual": { "type": "number" },
+          "precio": { "type": "number" },
+          "stock_minimo": { "type": "integer" },
+          "stock_actual": { "type": "integer" },
           "creado_en": { "type": "string", "format": "date-time" },
           "actualizado_en": { "type": "string", "format": "date-time" }
         }
-      },
-      "ProductoCrear": {
-        "type": "object",
-        "required": ["codigo", "nombre", "unidad"],
-        "properties": {
-          "codigo": { "type": "string", "minLength": 1 },
-          "nombre": { "type": "string", "minLength": 1 },
-          "unidad": { "type": "string", "minLength": 1 },
-          "descripcion": { "type": "string" },
-          "categoria": { "type": "string" },
-          "stock_minimo": { "type": "number", "minimum": 0, "default": 0 },
-          "stock_actual": { "type": "number", "minimum": 0, "default": 0 }
-        },
-        "additionalProperties": false
-      },
-      "ProductoActualizar": {
-        "type": "object",
-        "properties": {
-          "codigo": { "type": "string", "minLength": 1 },
-          "nombre": { "type": "string", "minLength": 1 },
-          "unidad": { "type": "string", "minLength": 1 },
-          "descripcion": { "type": "string" },
-          "categoria": { "type": "string" },
-          "stock_minimo": { "type": "number", "minimum": 0 },
-          "stock_actual": { "type": "number", "minimum": 0 }
-        },
-        "additionalProperties": false
-      },
-      "Movimiento": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "integer" },
-          "fecha": { "type": "string", "format": "date-time" },
-          "tipo": { "type": "string", "enum": ["entrada", "salida"] },
-          "producto_id": { "type": "integer" },
-          "cantidad": { "type": "number" },
-          "documento": { "type": "string", "nullable": true },
-          "responsable": { "type": "string", "nullable": true },
-          "proveedor_id": { "type": "integer", "nullable": true }
-        }
-      },
-      "MovimientoOperacionResult": {
-        "type": "object",
-        "properties": {
-          "movimiento": { "$ref": "#/components/schemas/Movimiento" },
-          "producto": { "$ref": "#/components/schemas/Producto" }
-        },
-        "required": ["movimiento", "producto"]
       },
       "Proveedor": {
         "type": "object",
         "properties": {
           "id": { "type": "integer" },
           "nombre": { "type": "string" },
-          "telefono": { "type": "string", "nullable": true },
-          "contacto": { "type": "string", "nullable": true },
+          "telefono": { "type": "string" },
+          "contacto": { "type": "string" },
           "creado_en": { "type": "string", "format": "date-time" }
         }
       },
-      "ProveedorCrear": {
+      "Cliente": {
         "type": "object",
-        "required": ["nombre"],
         "properties": {
-          "nombre": { "type": "string", "minLength": 2 },
+          "id": { "type": "integer" },
+          "nombre": { "type": "string" },
           "telefono": { "type": "string" },
-          "contacto": { "type": "string" }
+          "contacto": { "type": "string" },
+          "creado_en": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MovimientoBase": {
+        "type": "object",
+        "properties": {
+          "producto_clave": {
+            "type": "string",
+            "maxLength": 10,
+            "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$"
+          },
+          "cantidad": { "type": "integer", "minimum": 1 },
+          "documento": { "type": "string", "maxLength": 120 },
+          "responsable": { "type": "string", "maxLength": 120 },
+          "fecha": { "type": "string", "format": "date-time" }
         },
+        "required": ["producto_clave", "cantidad"],
         "additionalProperties": false
       },
-      "ApiBase": {
-        "type": "object",
-        "required": ["codigo", "mensaje", "path", "timestamp"],
-        "properties": {
-          "codigo": { "type": "integer", "description": "0=OK, >0=Error" },
-          "mensaje": { "type": "string" },
-          "timestamp": { "type": "string", "format": "date-time" },
-          "path": { "type": "string" },
-          "detalle": { "type": "object", "nullable": true }
-        }
-      },
-      "ApiError": {
-        "allOf": [{ "$ref": "#/components/schemas/ApiBase" }],
-        "example": {
-          "codigo": 4,
-          "mensaje": "Credenciales inválidas",
-          "path": "/auth/login",
-          "timestamp": "2025-01-01T10:00:00Z"
-        }
-      },
-      "ApiOk_Login": {
+      "MovimientoInput": {
         "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
+          { "$ref": "#/components/schemas/MovimientoBase" },
           {
             "type": "object",
             "properties": {
-              "data": {
-                "type": "object",
-                "properties": {
-                  "requiresOtp": { "type": "boolean" },
-                  "needsEnrollment": { "type": "boolean", "description": "true si el usuario aún no tiene OTP configurado" },
-                  "token": { "type": "string", "nullable": true },
-                  "preAuth": { "type": "string", "nullable": true },
-                  "offline": { "$ref": "#/components/schemas/OfflineFallback" }
-                },
-                "required": ["requiresOtp"],
-                "additionalProperties": false
-              }
+              "entrada": {
+                "description": "true/1 = entrada; false/0 = salida. También acepta textos comunes.",
+                "oneOf": [
+                  { "type": "boolean" },
+                  { "type": "integer", "enum": [0, 1] },
+                  { "type": "string", "enum": ["0","1","true","false","si","sí","yes","no","on","off"] }
+                ]
+              },
+              "proveedor_id": { "type": "integer", "minimum": 1, "nullable": true },
+              "cliente_id": { "type": "integer", "minimum": 1, "nullable": true }
             },
-            "required": ["data"]
+            "required": ["entrada"],
+            "additionalProperties": false
           }
         ],
-        "example": {
-          "codigo": 0,
-          "mensaje": "OK",
-          "path": "/auth/login",
-          "timestamp": "2025-01-01T10:00:00Z",
-          "data": {
-            "requiresOtp": true,
-            "needsEnrollment": true,
-            "preAuth": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            "offline": {
-              "pin": "394812",
-              "offlineJwt": "eyJhbGciOi...offline...",
-              "expiresAt": "2025-01-01T10:01:00Z"
+        "description": "Reglas: si entrada=true/1 puedes incluir proveedor_id. Si entrada=false/0 debes incluir cliente_id."
+      },
+      "PaginacionMeta": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "total_items": { "type": "integer" },
+          "total_pages": { "type": "integer" },
+          "has_prev": { "type": "boolean" },
+          "has_next": { "type": "boolean" },
+          "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
+          "sort_dir": { "type": "string", "enum": ["asc", "desc"] }
+        },
+        "required": ["page", "per_page", "total_items", "total_pages", "has_prev", "has_next"]
+      },
+      "ProductoVentaRow": {
+        "type": "object",
+        "properties": {
+          "producto_id": { "type": "integer" },
+          "clave": { "type": "string" },
+          "nombre": { "type": "string" },
+          "total_vendido": { "type": "number" }
+        },
+        "required": ["producto_id", "clave", "nombre", "total_vendido"]
+      },
+      "ProductoVentaResumenRow": {
+        "type": "object",
+        "properties": {
+          "producto_id": { "type": "integer" },
+          "clave": { "type": "string" },
+          "nombre": { "type": "string" },
+          "total_vendido": { "type": "number" },
+          "precio_referencia": { "type": "number", "nullable": true }
+        },
+        "required": ["producto_id", "clave", "nombre", "total_vendido"]
+      },
+      "Sesion": {
+        "type": "object",
+        "properties": {
+          "jti": { "type": "string", "format": "uuid" },
+          "ip": { "type": "string" },
+          "user_agent": { "type": "string" },
+          "creado_en": { "type": "string", "format": "date-time" },
+          "ultimo_uso": { "type": "string", "format": "date-time" },
+          "actual": { "type": "boolean" }
+        }
+      }
+    },
+    "responses": {
+      "Resp200_Min": {
+        "description": "Respuesta mínima (escritura). Siempre HTTP 200.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK" }
+          }
+        }
+      },
+      "Resp200_UsuariosList": {
+        "description": "Listar usuarios (trae data)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/UsuarioPublico" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
             }
           }
         }
       },
-      "ApiOk_UsuarioPublico": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/UsuarioPublico" } }, "required": ["data"] }
-        ]
+      "Resp200_ProductosList": {
+        "description": "Listar productos (trae data)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } },
+                    "meta": { "$ref": "#/components/schemas/PaginacionMeta" }
+                  },
+                  "required": ["items", "meta"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_UsuarioPublicoArray": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/UsuarioPublico" } } }, "required": ["data"] }
-        ]
+      "Resp200_ProductosLowStock": {
+        "description": "Listar productos con bajo stock (solo lectura, sin notificación)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "codigo": 0,
+              "mensaje": "OK",
+              "data": {
+                "items": [
+                  {
+                    "id": 12,
+                    "clave": "SKU-001",
+                    "nombre": "Guantes",
+                    "unidad": "pieza",
+                    "categoria": "EPP",
+                    "precio": 45.5,
+                    "stock_minimo": 10,
+                    "stock_actual": 2,
+                    "creado_en": "2025-01-10T18:20:00Z",
+                    "actualizado_en": "2025-02-15T12:01:00Z"
+                  }
+                ]
+              }
+            }
+          }
+        }
       },
-      "ApiOk_Eliminar": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "object", "properties": { "mensaje": { "type": "string" }, "id": { "type": "integer" } }, "required": ["id"] } }, "required": ["data"] }
-        ]
+      "Resp200_ProveedoresList": {
+        "description": "Listar proveedores (trae data)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Proveedor" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_OtpSetupStart": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "object", "properties": { "secret": { "type": "string" }, "otpauth_uri": { "type": "string" }, "qrcode_png": { "type": "string", "description": "data:image/png;base64,..." } }, "required": ["secret", "otpauth_uri"] } }, "required": ["data"] }
-        ]
+      "Resp200_ClientesList": {
+        "description": "Listar clientes (trae data)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Cliente" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_OtpSetupConfirm": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "object", "properties": { "otp_enabled": { "type": "boolean" }, "backup_codes": { "type": "array", "items": { "type": "string" } } }, "required": ["otp_enabled", "backup_codes"] } }, "required": ["data"] }
-        ]
+      "Resp200_Estad_VentasProducto": {
+        "description": "Reporte: ventas por producto",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_Generic": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "object" } }, "required": ["data"] }
-        ]
+      "Resp200_Estad_MenorVenta": {
+        "description": "Reporte: productos de menor venta",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/ProductoVentaRow" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_Producto": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Producto" } }, "required": ["data"] }
-        ]
+      "Resp200_Estad_Extremos": {
+        "description": "Reporte: más barato y más caro dentro del top N",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "mas_barato_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" },
+                    "mas_caro_mas_vendido": { "$ref": "#/components/schemas/ProductoVentaResumenRow" }
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_ProductoArray": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Producto" } } }, "required": ["data"] }
-        ]
+      "Resp200_SessionsList": {
+        "description": "Listar sesiones activas del usuario",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/Sesion" } }
+                  },
+                  "required": ["items"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "ApiOk_MovimientoOperacion": {
-        "allOf": [
-          { "$ref": "#/components/schemas/ApiBase" },
-          { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/MovimientoOperacionResult" } }, "required": ["data"] }
-        ]
-      }
-    },
-    "responses": {
-      "RespOk_Login": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Login" } } }
+      "Resp200_Logout": {
+        "description": "Cerrar sesión actual",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "revoked": { "type": "boolean" } },
+                  "required": ["revoked"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK", "data": { "revoked": true } }
+          }
+        }
       },
-      "RespOk_UsuarioPublico": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublico" } } }
+      "Resp200_Revoke": {
+        "description": "Revocar sesión por jti",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "jti": { "type": "string", "format": "uuid" } },
+                  "required": ["jti"]
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
       },
-      "RespOk_UsuarioPublicoArray": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_UsuarioPublicoArray" } } }
-      },
-      "RespOk_Eliminar": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Eliminar" } } }
-      },
-      "RespOk_OtpSetupStart": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_OtpSetupStart" } } }
-      },
-      "RespOk_OtpSetupConfirm": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_OtpSetupConfirm" } } }
-      },
-      "RespOk_Generic": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Generic" } } }
-      },
-      "RespError": {
-        "description": "Error estándar",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } }
-      },
-      "RespOk_Producto": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_Producto" } } }
-      },
-      "RespOk_ProductoArray": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_ProductoArray" } } }
-      },
-      "RespOk_MovimientoOperacion": {
-        "description": "OK",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiOk_MovimientoOperacion" } } }
+      "Resp200_LogoutAll": {
+        "description": "Cerrar todas las sesiones del usuario",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": { "all": { "type": "boolean" } },
+                  "required": ["all"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": { "codigo": 0, "mensaje": "OK", "data": { "all": true } }
+          }
+        }
       }
     }
   }
