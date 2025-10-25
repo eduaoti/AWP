@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AWP MVP API",
-    "version": "1.1.0",
+    "version": "1.2.1",
     "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}. Las alertas de bajo stock se gestionan automáticamente por un worker; la API no envía correos."
   },
   "tags": [
@@ -10,7 +10,7 @@
     { "name": "Recovery", "description": "Recuperación de contraseña" },
     { "name": "Usuarios", "description": "Gestión de usuarios" },
     { "name": "Productos", "description": "Administración de productos" },
-    { "name": "Movimientos", "description": "Entradas y salidas (JSON-only)" },
+    { "name": "Movimientos", "description": "Entradas y salidas (JSON-only, endpoint único)" },
     { "name": "Proveedores", "description": "Directorio de proveedores" },
     { "name": "Clientes", "description": "Directorio de clientes" },
     { "name": "Estadísticas", "description": "Reportes (JSON-only)" }
@@ -227,6 +227,7 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_LogoutAll" } }
       }
     },
+
     "/usuarios/nuevo": {
       "post": {
         "operationId": "usuariosCrear",
@@ -240,7 +241,7 @@
                 "type": "object",
                 "required": ["nombre", "email", "password", "rol"],
                 "properties": {
-                  "nombre": { "type": "string" },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
                   "email": { "type": "string", "format": "email" },
                   "password": { "type": "string", "minLength": 8 },
                   "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
@@ -266,8 +267,8 @@
                 "type": "object",
                 "required": ["id", "nombre", "email", "rol"],
                 "properties": {
-                  "id": { "type": "integer" },
-                  "nombre": { "type": "string" },
+                  "id": { "type": "integer", "minimum": 1 },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
                   "email": { "type": "string", "format": "email" },
                   "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
                 },
@@ -291,7 +292,7 @@
               "schema": {
                 "type": "object",
                 "required": ["id"],
-                "properties": { "id": { "type": "integer" } },
+                "properties": { "id": { "type": "integer", "minimum": 1 } },
                 "additionalProperties": false
               }
             }
@@ -309,31 +310,61 @@
       }
     },
 
-
-
     "/productos": {
       "post": {
         "operationId": "productosCrear",
         "tags": ["Productos"],
         "summary": "Crear producto",
+        "description": "Validaciones fuertes: clave estricta sin '@' ni símbolos fuera de [A-Za-z0-9-], nombre 3–120 sin HTML/JS, precio con 2 decimales, stock entero ≥ 0.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["clave", "nombre", "unidad", "categoria"],
+                "required": ["clave", "nombre", "unidad", "categoria", "precio", "stock_minimo", "stock_actual"],
                 "properties": {
-                  "clave": { "type": "string" },
-                  "nombre": { "type": "string" },
-                  "unidad": { "type": "string" },
-                  "descripcion": { "type": "string" },
-                  "categoria": { "type": "string" },
-                  "precio": { "type": "number" },
-                  "stock_minimo": { "type": "number" },
-                  "stock_actual": { "type": "number" }
+                  "clave": {
+                    "type": "string",
+                    "maxLength": 10,
+                    "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$",
+                    "description": "Solo letras/números/guiones, sin iniciar/terminar con -, sin \"--\"."
+                  },
+                  "nombre": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 120,
+                    "pattern": "^(?!.*(<|>|&lt;|&gt;|script|onerror|onload|onclick|onmouseover|javascript:)).*$",
+                    "description": "Texto seguro (sin HTML/JS)."
+                  },
+                  "unidad": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30,
+                    "pattern": "^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 ./%-]+$"
+                  },
+                  "descripcion": { "type": "string", "maxLength": 240 },
+                  "categoria": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60,
+                    "pattern": "^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 .,&/()-]+$"
+                  },
+                  "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                  "stock_minimo": { "type": "integer", "minimum": 0 },
+                  "stock_actual": { "type": "integer", "minimum": 0 }
                 },
                 "additionalProperties": false
+              },
+              "example": {
+                "clave": "SKU-001",
+                "nombre": "Guantes de nitrilo",
+                "unidad": "pieza",
+                "descripcion": "Caja con 100 piezas",
+                "categoria": "EPP",
+                "precio": 45.5,
+                "stock_minimo": 10,
+                "stock_actual": 12
               }
             }
           }
@@ -354,8 +385,8 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "clave": { "type": "string" },
-                  "nombre": { "type": "string" },
+                  "clave": { "type": "string", "maxLength": 10, "pattern": "^(|(?!(?:-)|.*--)[A-Za-z0-9-]+(?<!-))$" },
+                  "nombre": { "type": "string", "maxLength": 120 },
                   "page": { "type": "integer", "minimum": 1, "default": 1 },
                   "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
                   "sort_by": { "type": "string", "enum": ["nombre", "precio", "stock_actual", "creado_en"] },
@@ -379,7 +410,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_ProductosLowStock" } }
       }
     },
-
     "/productos/actualizar": {
       "put": {
         "operationId": "productoActualizarClaveONombre",
@@ -396,14 +426,14 @@
                     "type": "object",
                     "required": ["clave"],
                     "properties": {
-                      "clave": { "type": "string" },
-                      "nombre": { "type": "string" },
-                      "unidad": { "type": "string" },
-                      "descripcion": { "type": "string" },
-                      "categoria": { "type": "string" },
-                      "precio": { "type": "number" },
-                      "stock_minimo": { "type": "number" },
-                      "stock_actual": { "type": "number" }
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "unidad": { "type": "string", "maxLength": 30 },
+                      "descripcion": { "type": "string", "maxLength": 240 },
+                      "categoria": { "type": "string", "maxLength": 60 },
+                      "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 },
+                      "stock_actual": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false
                   },
@@ -411,14 +441,14 @@
                     "type": "object",
                     "required": ["nombre"],
                     "properties": {
-                      "nombre": { "type": "string" },
-                      "clave": { "type": "string" },
-                      "unidad": { "type": "string" },
-                      "descripcion": { "type": "string" },
-                      "categoria": { "type": "string" },
-                      "precio": { "type": "number" },
-                      "stock_minimo": { "type": "number" },
-                      "stock_actual": { "type": "number" }
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "unidad": { "type": "string", "maxLength": 30 },
+                      "descripcion": { "type": "string", "maxLength": 240 },
+                      "categoria": { "type": "string", "maxLength": 60 },
+                      "precio": { "type": "number", "exclusiveMinimum": 0, "multipleOf": 0.01 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 },
+                      "stock_actual": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false
                   }
@@ -434,7 +464,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/productos/stock-minimo": {
       "put": {
         "operationId": "productoStockMinimoClaveONombre",
@@ -451,8 +480,8 @@
                     "type": "object",
                     "required": ["clave", "stock_minimo"],
                     "properties": {
-                      "clave": { "type": "string" },
-                      "stock_minimo": { "type": "number", "minimum": 0 }
+                      "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" },
+                      "stock_minimo": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false
                   },
@@ -460,8 +489,8 @@
                     "type": "object",
                     "required": ["nombre", "stock_minimo"],
                     "properties": {
-                      "nombre": { "type": "string" },
-                      "stock_minimo": { "type": "number", "minimum": 0 }
+                      "nombre": { "type": "string", "minLength": 3, "maxLength": 120 },
+                      "stock_minimo": { "type": "integer", "minimum": 0 }
                     },
                     "additionalProperties": false
                   }
@@ -477,7 +506,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/productos/eliminar": {
       "delete": {
         "operationId": "productoEliminarClaveONombre",
@@ -493,13 +521,13 @@
                   {
                     "type": "object",
                     "required": ["clave"],
-                    "properties": { "clave": { "type": "string" } },
+                    "properties": { "clave": { "type": "string", "maxLength": 10, "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$" } },
                     "additionalProperties": false
                   },
                   {
                     "type": "object",
                     "required": ["nombre"],
-                    "properties": { "nombre": { "type": "string" } },
+                    "properties": { "nombre": { "type": "string", "minLength": 3, "maxLength": 120 } },
                     "additionalProperties": false
                   }
                 ]
@@ -515,63 +543,46 @@
       }
     },
 
+    "/movimientos": {
+      "post": {
+        "operationId": "movimientosUnificado",
+        "tags": ["Movimientos"],
+        "summary": "Registrar movimiento (UNIFICADO, por clave, con flag 'entrada')",
+        "description": "Usa 'entrada' para indicar el tipo: true/1 = entrada; false/0 = salida. Para 'salida' debes incluir cliente_id; para 'entrada' puedes incluir proveedor_id.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MovimientoInput" },
+              "examples": {
+                "entrada": {
+                  "value": {
+                    "entrada": true,
+                    "producto_clave": "SKU-001",
+                    "cantidad": 5,
+                    "proveedor_id": 1,
+                    "documento": "OC-1001",
+                    "responsable": "Juan"
+                  }
+                },
+                "salida": {
+                  "value": {
+                    "entrada": 0,
+                    "producto_clave": "SKU-001",
+                    "cantidad": 2,
+                    "cliente_id": 10,
+                    "documento": "FAC-555",
+                    "responsable": "Ana"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
 
-    "/movimientos/entrada": {
-      "post": {
-        "operationId": "movimientosEntrada",
-        "tags": ["Movimientos"],
-        "summary": "Registrar entrada (JSON-only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["producto_id", "cantidad"],
-                "properties": {
-                  "producto_id": { "type": "integer", "minimum": 1 },
-                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-                  "documento": { "type": "string" },
-                  "responsable": { "type": "string" },
-                  "fecha": { "type": "string", "format": "date-time" },
-                  "proveedor_id": { "type": "integer", "minimum": 1 }
-                },
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-      }
-    },
-    "/movimientos/salida": {
-      "post": {
-        "operationId": "movimientosSalida",
-        "tags": ["Movimientos"],
-        "summary": "Registrar salida (JSON-only)",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["producto_id", "cantidad", "cliente_id"],
-                "properties": {
-                  "producto_id": { "type": "integer", "minimum": 1 },
-                  "cantidad": { "type": "number", "exclusiveMinimum": 0 },
-                  "documento": { "type": "string" },
-                  "responsable": { "type": "string" },
-                  "fecha": { "type": "string", "format": "date-time" },
-                  "cliente_id": { "type": "integer", "minimum": 1 }
-                },
-                "additionalProperties": false
-              }
-            }
-          }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-      }
-    },
     "/proveedores": {
       "get": {
         "operationId": "proveedoresListar",
@@ -591,9 +602,9 @@
                 "type": "object",
                 "required": ["nombre"],
                 "properties": {
-                  "nombre": { "type": "string" },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 160 },
                   "telefono": { "type": "string" },
-                  "contacto": { "type": "string" }
+                  "contacto": { "type": "string", "maxLength": 120 }
                 },
                 "additionalProperties": false
               }
@@ -622,9 +633,9 @@
                 "type": "object",
                 "required": ["nombre"],
                 "properties": {
-                  "nombre": { "type": "string" },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 160 },
                   "telefono": { "type": "string" },
-                  "contacto": { "type": "string" }
+                  "contacto": { "type": "string", "maxLength": 120 }
                 },
                 "additionalProperties": false
               }
@@ -634,6 +645,7 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
+
     "/estadisticas/ventas-producto": {
       "post": {
         "operationId": "estadisticasVentasProducto",
@@ -729,8 +741,8 @@
           "categoria": { "type": "string", "nullable": true },
           "unidad": { "type": "string" },
           "precio": { "type": "number" },
-          "stock_minimo": { "type": "number" },
-          "stock_actual": { "type": "number" },
+          "stock_minimo": { "type": "integer" },
+          "stock_actual": { "type": "integer" },
           "creado_en": { "type": "string", "format": "date-time" },
           "actualizado_en": { "type": "string", "format": "date-time" }
         }
@@ -754,6 +766,45 @@
           "contacto": { "type": "string" },
           "creado_en": { "type": "string", "format": "date-time" }
         }
+      },
+      "MovimientoBase": {
+        "type": "object",
+        "properties": {
+          "producto_clave": {
+            "type": "string",
+            "maxLength": 10,
+            "pattern": "^(?!-)(?!.*--)[A-Za-z0-9-]+(?<!-)$"
+          },
+          "cantidad": { "type": "integer", "minimum": 1 },
+          "documento": { "type": "string", "maxLength": 120 },
+          "responsable": { "type": "string", "maxLength": 120 },
+          "fecha": { "type": "string", "format": "date-time" }
+        },
+        "required": ["producto_clave", "cantidad"],
+        "additionalProperties": false
+      },
+      "MovimientoInput": {
+        "allOf": [
+          { "$ref": "#/components/schemas/MovimientoBase" },
+          {
+            "type": "object",
+            "properties": {
+              "entrada": {
+                "description": "true/1 = entrada; false/0 = salida. También acepta textos comunes.",
+                "oneOf": [
+                  { "type": "boolean" },
+                  { "type": "integer", "enum": [0, 1] },
+                  { "type": "string", "enum": ["0","1","true","false","si","sí","yes","no","on","off"] }
+                ]
+              },
+              "proveedor_id": { "type": "integer", "minimum": 1, "nullable": true },
+              "cliente_id": { "type": "integer", "minimum": 1, "nullable": true }
+            },
+            "required": ["entrada"],
+            "additionalProperties": false
+          }
+        ],
+        "description": "Reglas: si entrada=true/1 puedes incluir proveedor_id. Si entrada=false/0 debes incluir cliente_id."
       },
       "PaginacionMeta": {
         "type": "object",

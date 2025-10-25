@@ -1,9 +1,5 @@
-// src/models/movimiento.model.ts
 import { pool } from "../db";
-import type {
-  MovimientoEntradaDTO,
-  MovimientoSalidaDTO,
-} from "../schemas/movimiento.schemas";
+import type { MovimientoDTO } from "../schemas/movimiento.schemas";
 
 /* =========================
    Tipos
@@ -17,7 +13,7 @@ type MovimientoRow = {
   documento?: string | null;
   responsable?: string | null;
   proveedor_id?: number | null; // solo entradas
-  cliente_id?: number | null;   // solo salidas (E10)
+  cliente_id?: number | null;   // solo salidas
 };
 
 /* =========================
@@ -42,8 +38,11 @@ function cleanTextOrNull(v?: string | null) {
 /* =========================
    Pre-chequeos de existencia
    ========================= */
-async function ensureProducto(client: any, id: number) {
-  const { rows } = await client.query(`SELECT * FROM productos WHERE id = $1 FOR UPDATE`, [id]);
+async function getProductoByClaveForUpdate(client: any, clave: string) {
+  const { rows } = await client.query(
+    `SELECT * FROM productos WHERE LOWER(clave) = LOWER($1) FOR UPDATE`,
+    [clave]
+  );
   if (!rows.length) throw apiError(404, "NOT_FOUND", "Producto no encontrado");
   return rows[0];
 }
@@ -51,9 +50,7 @@ async function ensureProducto(client: any, id: number) {
 async function ensureProveedorIfAny(client: any, id?: number | null) {
   if (!id) return true;
   const { rows } = await client.query(`SELECT 1 FROM proveedores WHERE id = $1`, [id]);
-  if (!rows.length) {
-    throw apiError(404, "NOT_FOUND", "Proveedor no encontrado");
-  }
+  if (!rows.length) throw apiError(404, "NOT_FOUND", "Proveedor no encontrado");
   return true;
 }
 
@@ -64,164 +61,119 @@ async function ensureCliente(client: any, id: number) {
 }
 
 /* ===========================================================
-   ENTRADA
-   - Valida producto
-   - (Opcional) valida proveedor para evitar FK 23503
-   - Suma stock_actual
-   - Inserta movimiento
+   ✅ ÚNICO REGISTRO DE MOVIMIENTO (entrada o salida) POR CLAVE
+   - entrada: boolean (true=entrada, false=salida)
+   - producto_clave: string
+   - cantidad: entero > 0
+   - documento/responsable opcionales (sanitizados)
+   - proveedor_id opcional solo para entrada
+   - cliente_id requerido solo para salida
    =========================================================== */
-export async function registrarEntrada(
-  data: MovimientoEntradaDTO
+export async function registrarMovimiento(
+  data: MovimientoDTO
 ): Promise<{ movimiento: MovimientoRow; producto: any }> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Producto (lock) o 404
-    const prod = await ensureProducto(client, data.producto_id);
+    // 1) Producto por CLAVE (con lock)
+    const prod = await getProductoByClaveForUpdate(client, data.producto_clave);
 
-    // Proveedor (si viene) o 404
-    await ensureProveedorIfAny(client, data.proveedor_id ?? null);
+    // 2) Validaciones condicionales de FK para evitar errores 23503
+    const esEntrada = !!data.entrada;
+    if (esEntrada) {
+      await ensureProveedorIfAny(client, data.proveedor_id ?? null);
+    } else {
+      await ensureCliente(client, data.cliente_id as number);
+    }
 
-    // Actualizar stock (suma)
-    const nuevoStock = Number(prod.stock_actual) + Number(data.cantidad);
+    const cant = Number(data.cantidad);
+    const stockActual = Number(prod.stock_actual);
+
+    // 3) Regla de negocio para salida: no permitir salidas > stock
+    if (!esEntrada && cant > stockActual) {
+      throw apiError(400, "STOCK_INSUFICIENTE", "Cantidad solicitada excede el stock disponible");
+    }
+
+    // 4) Actualizar stock
+    const nuevoStock = esEntrada ? stockActual + cant : stockActual - cant;
+
     const { rows: updRows } = await client.query(
       `UPDATE productos
          SET stock_actual = $1, actualizado_en = NOW()
        WHERE id = $2
        RETURNING *`,
-      [nuevoStock, data.producto_id]
+      [nuevoStock, prod.id]
     );
     const productoActualizado = updRows[0];
 
-    // Insertar movimiento
-    const { rows: movRows } = await client.query(
-      `INSERT INTO movimientos
-         (fecha, tipo, producto_id, cantidad, documento, responsable, proveedor_id)
-       VALUES
-         (COALESCE($1, NOW()), 'entrada', $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        data.fecha ?? null,
-        data.producto_id,
-        data.cantidad,
-        cleanTextOrNull(data.documento),
-        cleanTextOrNull(data.responsable),
-        data.proveedor_id ?? null,
-      ]
-    );
-
-    await client.query("COMMIT");
-    return { movimiento: movRows[0], producto: productoActualizado };
+    // 5) Insertar movimiento
+    if (esEntrada) {
+      const { rows: movRows } = await client.query(
+        `INSERT INTO movimientos
+           (fecha, tipo, producto_id, cantidad, documento, responsable, proveedor_id)
+         VALUES
+           (COALESCE($1, NOW()), 'entrada', $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          data.fecha ?? null,
+          prod.id,
+          cant,
+          cleanTextOrNull(data.documento),
+          cleanTextOrNull(data.responsable),
+          data.proveedor_id ?? null,
+        ]
+      );
+      await client.query("COMMIT");
+      return { movimiento: movRows[0], producto: productoActualizado };
+    } else {
+      const { rows: movRows } = await client.query(
+        `INSERT INTO movimientos
+           (fecha, tipo, producto_id, cantidad, documento, responsable, cliente_id)
+         VALUES
+           (COALESCE($1, NOW()), 'salida', $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          data.fecha ?? null,
+          prod.id,
+          cant,
+          cleanTextOrNull(data.documento),
+          cleanTextOrNull(data.responsable),
+          data.cliente_id as number,
+        ]
+      );
+      await client.query("COMMIT");
+      return { movimiento: movRows[0], producto: productoActualizado };
+    }
   } catch (e: any) {
     await client.query("ROLLBACK");
 
-    // Mapeo fino de errores de BD
+    // Traducciones de errores de BD
     if (e?.code === "23503") {
-      // Violación FK (por si el prechequeo no cubrió)
       const c = e?.constraint ?? "";
+      if (c.includes("movimientos_cliente_id_fkey")) {
+        throw apiError(404, "NOT_FOUND", "Cliente no encontrado", { constraint: c });
+      }
       if (c.includes("movimientos_proveedor_id_fkey")) {
         throw apiError(404, "NOT_FOUND", "Proveedor no encontrado", { constraint: c });
       }
       if (c.includes("movimientos_producto_id_fkey")) {
         throw apiError(404, "NOT_FOUND", "Producto no encontrado", { constraint: c });
       }
-      throw apiError(400, "DB_FK", "Referencia inválida en movimiento (clave foránea).", { constraint: c });
+      throw apiError(400, "DB_FK", "Referencia inválida (clave foránea).", { constraint: c });
     }
     if (e?.code === "23514") {
       // CHECK constraints (cantidad > 0, etc.)
-      throw apiError(400, "VALIDATION_FAILED", "Movimiento inválido: no cumple restricciones (revisa cantidad > 0, tipo, etc.)", { constraint: e?.constraint });
-    }
-    if (e?.status) throw e;
-
-    throw apiError(500, "DB_ERROR", "Error de base de datos al registrar entrada.", e?.message ?? e);
-  } finally {
-    client.release();
-  }
-}
-
-/* ===========================================================
-   SALIDA
-   - Valida producto
-   - Valida cliente (requerido por esquema)
-   - Verifica stock suficiente; si no, 400 + code STOCK_INSUFICIENTE
-   - Resta stock_actual
-   - Inserta movimiento
-   =========================================================== */
-export async function registrarSalida(
-  data: MovimientoSalidaDTO
-): Promise<{ movimiento: MovimientoRow; producto: any }> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    // Producto (lock) o 404
-    const prod = await ensureProducto(client, data.producto_id);
-
-    // Cliente requerido (esquema) pero validamos existencia para evitar FK
-    await ensureCliente(client, data.cliente_id);
-
-    const stockActual = Number(prod.stock_actual);
-    const cant = Number(data.cantidad);
-
-    // Regla de negocio: no permitir salidas mayores al stock
-    if (cant > stockActual) {
       throw apiError(
         400,
-        "STOCK_INSUFICIENTE",
-        "Cantidad solicitada excede el stock disponible"
+        "VALIDATION_FAILED",
+        "Movimiento inválido: no cumple restricciones (revisa cantidad > 0, etc.)",
+        { constraint: e?.constraint }
       );
-    }
-
-    // Actualizar stock (resta)
-    const nuevoStock = stockActual - cant;
-    const { rows: updRows } = await client.query(
-      `UPDATE productos
-         SET stock_actual = $1, actualizado_en = NOW()
-       WHERE id = $2
-       RETURNING *`,
-      [nuevoStock, data.producto_id]
-    );
-    const productoActualizado = updRows[0];
-
-    // Insertar movimiento
-    const { rows: movRows } = await client.query(
-      `INSERT INTO movimientos
-         (fecha, tipo, producto_id, cantidad, documento, responsable, cliente_id)
-       VALUES
-         (COALESCE($1, NOW()), 'salida', $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [
-        data.fecha ?? null,
-        data.producto_id,
-        data.cantidad,
-        cleanTextOrNull(data.documento),
-        cleanTextOrNull(data.responsable),
-        data.cliente_id,
-      ]
-    );
-
-    await client.query("COMMIT");
-    return { movimiento: movRows[0], producto: productoActualizado };
-  } catch (e: any) {
-    await client.query("ROLLBACK");
-
-    if (e?.code === "23503") {
-      const c = e?.constraint ?? "";
-      if (c.includes("movimientos_cliente_id_fkey")) {
-        throw apiError(404, "NOT_FOUND", "Cliente no encontrado", { constraint: c });
-      }
-      if (c.includes("movimientos_producto_id_fkey")) {
-        throw apiError(404, "NOT_FOUND", "Producto no encontrado", { constraint: c });
-      }
-      throw apiError(400, "DB_FK", "Referencia inválida en movimiento (clave foránea).", { constraint: c });
-    }
-    if (e?.code === "23514") {
-      throw apiError(400, "VALIDATION_FAILED", "Movimiento inválido: no cumple restricciones (revisa cantidad > 0, tipo, etc.)", { constraint: e?.constraint });
     }
     if (e?.status) throw e;
 
-    throw apiError(500, "DB_ERROR", "Error de base de datos al registrar salida.", e?.message ?? e);
+    throw apiError(500, "DB_ERROR", "Error de base de datos al registrar movimiento.", e?.message ?? e);
   } finally {
     client.release();
   }

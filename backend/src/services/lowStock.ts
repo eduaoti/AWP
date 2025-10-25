@@ -1,6 +1,11 @@
-// src/services/lowStock.ts  (corregido: enteros + asuntos sin emojis)
+// src/services/lowStock.ts  (1 solo correo por ciclo; asuntos sin "Bajo stock")
 import { pool } from "../db";
-import { sendNowOrEnqueue, buildSingleProductHtml, buildResolvedHtml } from "./emailQueue";
+import {
+  sendNowOrEnqueue,
+  buildSingleProductHtml,
+  buildResolvedHtml,
+  enqueueLowStockAlertToChief, // ⬅️ nuevo: batch mail
+} from "./emailQueue";
 import { UsuarioModel } from "../models/usuario.model";
 
 const REMINDER_EVERY_MINUTES = Number(process.env.LOW_STOCK_REMINDER_MINUTES ?? 60);
@@ -75,60 +80,60 @@ export async function upsertActiveLowStockAlerts(): Promise<number> {
   }
 }
 
-/** Notifica las alertas vencidas y reprograma su siguiente recordatorio */
+/** Notifica las alertas vencidas en **un solo correo** y reprograma su siguiente recordatorio */
 export async function notifyDueLowStockAlerts(): Promise<number> {
   const chief = await getChiefEmail();
   if (!chief) return 0;
 
-  const { rows } = await pool.query<{ id: number; producto_id: number; times_notified: number }>(`
-    SELECT id, producto_id, times_notified
-      FROM low_stock_alerts
-     WHERE active = TRUE
-       AND next_notify_at <= NOW()
-     ORDER BY next_notify_at ASC
-     LIMIT 100
+  // Trae las alertas vencidas con los datos del producto
+  const { rows } = await pool.query<{
+    id: number;
+    producto_id: number;
+    times_notified: number;
+    clave: string;
+    nombre: string;
+    stock_actual: number;
+    stock_minimo: number;
+  }>(`
+    SELECT a.id, a.producto_id, a.times_notified,
+           p.clave, p.nombre, p.stock_actual, p.stock_minimo
+      FROM low_stock_alerts a
+      JOIN productos p ON p.id = a.producto_id
+     WHERE a.active = TRUE
+       AND a.next_notify_at <= NOW()
+     ORDER BY a.next_notify_at ASC
+     LIMIT 200
   `);
 
   if (!rows.length) return 0;
 
-  let sent = 0;
+  // Armamos el lote de productos a incluir en EL correo
+  const items = rows.map(r => ({
+    id: r.producto_id,
+    clave: r.clave,
+    nombre: r.nombre,
+    stock_actual: r.stock_actual | 0,
+    stock_minimo: r.stock_minimo | 0,
+    faltante: Math.max(0, (r.stock_minimo | 0) - (r.stock_actual | 0)),
+  }));
 
-  for (const a of rows) {
-    const prod = await pool.query<ProductRow>(
-      `SELECT id, clave, nombre, stock_actual, stock_minimo
-         FROM productos
-        WHERE id = $1`,
-      [a.producto_id]
-    );
+  // Encola/envida UN solo correo con todos los productos
+  await enqueueLowStockAlertToChief(items);
 
-    const p = prod.rows[0];
-
-    if (!p) {
-      // El producto ya no existe; apaga la alerta
-      await pool.query(
-        `UPDATE low_stock_alerts
-            SET active = FALSE, resolved_at = NOW()
-          WHERE id = $1`,
-        [a.id]
-      );
-      continue;
-    }
-
-    const faltante = p.stock_minimo - p.stock_actual;
-    const subject =
-      a.times_notified === 0
-        ? `Bajo stock: ${p.clave} – ${p.nombre}`
-        : `Recordatorio de bajo stock: ${p.clave} – ${p.nombre}`;
-
-    const html = buildSingleProductHtml(p.clave, p.nombre, p.stock_actual, p.stock_minimo, faltante);
-
-    await sendNowOrEnqueue(chief, subject, html);
-    sent++;
-
+  // Registra evento por cada producto y reprograma cada alerta
+  for (const r of rows) {
     await pool.query(
       `INSERT INTO low_stock_events (producto_id, kind, snapshot)
        VALUES ($1, 'reminder', $2::jsonb)`,
-      [a.producto_id, JSON.stringify({ ...p, faltante })]
+      [r.producto_id, JSON.stringify({
+        id: r.producto_id,
+        clave: r.clave,
+        nombre: r.nombre,
+        stock_actual: r.stock_actual,
+        stock_minimo: r.stock_minimo,
+        faltante: Math.max(0, (r.stock_minimo | 0) - (r.stock_actual | 0)),
+        batched: true,
+      })]
     );
 
     await pool.query(
@@ -139,11 +144,12 @@ export async function notifyDueLowStockAlerts(): Promise<number> {
               last_stock_actual = $3,
               last_stock_minimo = $4
         WHERE id = $1`,
-      [a.id, REMINDER_EVERY_MINUTES, p.stock_actual, p.stock_minimo]
+      [r.id, REMINDER_EVERY_MINUTES, r.stock_actual, r.stock_minimo]
     );
   }
 
-  return sent;
+  // devolvemos cuántos productos se incluyeron en el correo
+  return items.length;
 }
 
 /** Cierra alertas de productos repuestos y avisa */
@@ -188,7 +194,8 @@ export async function resolveRecoveredAlerts(): Promise<number> {
     );
 
     if (chief && p) {
-      const subject = `Stock repuesto: ${p.clave} – ${p.nombre}`;
+      // Asunto SIN “Bajo stock”
+      const subject = `Inventario normalizado: ${p.clave} – ${p.nombre}`;
       const html = buildResolvedHtml(p.clave, p.nombre, p.stock_actual, p.stock_minimo);
       await sendNowOrEnqueue(chief, subject, html);
     }
@@ -230,7 +237,7 @@ async function checkAndNotifyProductRow(p: ProductRow) {
   const under = p.stock_actual < p.stock_minimo;
 
   if (under) {
-    // Crea/actualiza alerta y dispara notificación inmediata
+    // Crea/actualiza alerta y dispara notificación inmediata (solo este producto)
     await pool.query(
       `INSERT INTO low_stock_alerts
         (producto_id, first_detected_at, last_notified_at, next_notify_at,
@@ -254,7 +261,8 @@ async function checkAndNotifyProductRow(p: ProductRow) {
 
     if (chief) {
       const faltante = p.stock_minimo - p.stock_actual;
-      const subject = `Bajo stock: ${p.clave} – ${p.nombre} (${p.stock_actual}/${p.stock_minimo})`;
+      // Asunto SIN “Bajo stock”
+      const subject = `Aviso de inventario: ${p.clave} – ${p.nombre} (${p.stock_actual}/${p.stock_minimo})`;
       const html = buildSingleProductHtml(p.clave, p.nombre, p.stock_actual, p.stock_minimo, faltante);
       await sendNowOrEnqueue(chief, subject, html);
     }
@@ -284,7 +292,7 @@ async function checkAndNotifyProductRow(p: ProductRow) {
       );
 
       if (chief) {
-        const subject = `Stock repuesto: ${p.clave} – ${p.nombre}`;
+        const subject = `Inventario normalizado: ${p.clave} – ${p.nombre}`;
         const html = buildResolvedHtml(p.clave, p.nombre, p.stock_actual, p.stock_minimo);
         await sendNowOrEnqueue(chief, subject, html);
       }
