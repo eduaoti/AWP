@@ -1,5 +1,6 @@
+// backend/src/models/cliente.model.ts
 import { pool } from "../db";
-import type { ClienteCrearDTO } from "../schemas/cliente.schemas";
+import type { ClienteCrearDTO } from "../schemas/domain/cliente.schemas";
 
 /* =========================
    Normalizadores defensivos
@@ -132,4 +133,64 @@ export async function existeCliente(id: number) {
     [id]
   );
   return !!rows[0];
+}
+
+// src/models/cliente.model.ts (añadir debajo de tus exports)
+export async function obtenerCliente(id: number) {
+  const { rows } = await pool.query(
+    `SELECT id, nombre, telefono, contacto, creado_en
+       FROM clientes
+      WHERE id = $1`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
+export async function actualizarCliente(d: { id: number; nombre: string; telefono?: string; contacto?: string }) {
+  const nombreNorm = normNombre(d.nombre);
+  const telefonoOrig = safeTextOrNull(d.telefono ?? undefined);
+  const contacto = safeTextOrNull(d.contacto ?? undefined);
+
+  // Evita colisiones de nombre con otros registros (igual que en crear)
+  const { rows: dupNombre } = await pool.query(
+    `SELECT id FROM clientes
+      WHERE lower(regexp_replace(nombre,'\\s+',' ','g'))
+            = lower(regexp_replace($1,'\\s+',' ','g'))
+        AND id <> $2
+      LIMIT 1`,
+    [nombreNorm, d.id]
+  );
+  if (dupNombre.length > 0) {
+    const err: any = new Error("Nombre de cliente ya registrado (ignora mayúsculas y espacios).");
+    err.status = 409;
+    err.code = "CLIENTE_DUPLICADO_NOMBRE";
+    throw err;
+  }
+
+  const { rows } = await pool.query(
+    `UPDATE clientes
+        SET nombre=$1, telefono=$2, contacto=$3
+      WHERE id=$4
+      RETURNING id, nombre, telefono, contacto, creado_en`,
+    [nombreNorm, telefonoOrig, contacto, d.id]
+  );
+  if (!rows[0]) {
+    const err: any = new Error("Cliente no encontrado");
+    err.status = 404;
+    throw err;
+  }
+  return rows[0];
+}
+
+export async function eliminarCliente(id: number) {
+  const { rows } = await pool.query(
+    `DELETE FROM clientes WHERE id=$1 RETURNING id`,
+    [id]
+  );
+  if (!rows[0]) {
+    const err: any = new Error("Cliente no encontrado");
+    err.status = 404;
+    throw err;
+  }
+  return rows[0];
 }

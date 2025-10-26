@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { claveStrict, nonNegativeInt, safeText } from "./_helpers";
+import { claveStrict, nonNegativeInt, safeText } from "../shared/_helpers";
 
 /* ===========================================================
    Reglas reutilizables (alineadas con productos)

@@ -1,4 +1,8 @@
 {
     "vscode_vibrancy.theme": "Tokyo Night Storm",
-    "docwriter.style": "reST"
+    "docwriter.style": "reST",
+    "sonarlint.connectedMode.project": {
+        "connectionId": "http-localhost-9000",
+        "projectKey": "BackendAWP"
+    }
 }

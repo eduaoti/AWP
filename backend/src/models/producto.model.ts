@@ -3,7 +3,7 @@ import { pool } from "../db";
 import type {
   CreateProductoDTO,
   UpdateProductoDTO,
-} from "../schemas/producto.schemas";
+} from "../schemas/domain/producto.schemas";
 
 /** Obtiene la clave a partir del DTO, aceptando clave o codigo por compat. */
 function getClaveFromDTO(d: Partial<CreateProductoDTO | UpdateProductoDTO>) {

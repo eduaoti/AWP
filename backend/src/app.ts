@@ -14,10 +14,10 @@ import estadisticas from "./routes/estadisticas.routes";
 import spec from "../docs/openapi.json";
 import { ok as okCode, sendCode } from "./status/respond";
 import { AppCode } from "./status/codes";
-import { jsonSyntaxErrorHandler, bodyHygieneGuard } from "./middlewares/errors";
-import { requireJson } from "./middlewares/require-json";
+import { jsonSyntaxErrorHandler, bodyHygieneGuard } from "./middlewares/validation/errors";
+import { requireJson } from "./middlewares/security/require-json";
 
-/** Augmentamos Request para guardar el body crudo (solo diagnóstico interno) */
+/** Extensión de Express.Request para diagnosticar cuerpo crudo (debug interno) */
 declare global {
   namespace Express {
     interface Request {
@@ -27,36 +27,42 @@ declare global {
 }
 
 const app: Application = express();
-
 app.set("trust proxy", true);
 
-// Seguridad y CORS
-app.use(helmet());
-app.use(cors());
+// ———————————————————————————————————————
+// Seguridad y configuración general
+// ———————————————————————————————————————
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE,OPTIONS" }));
 
-/** Body parser JSON (captura rawBody) */
+// ———————————————————————————————————————
+// Body parser con captura de rawBody
+// ———————————————————————————————————————
 app.use(
   express.json({
     limit: "1mb",
     strict: true,
     verify: (req: Request, _res, buf) => {
-      try { req.rawBody = buf.toString("utf8"); } catch { req.rawBody = ""; }
+      req.rawBody = buf?.toString("utf8") ?? "";
     },
   })
 );
 
-/** Handler específico de SINTAXIS JSON (debe ir justo después) */
+// ———————————————————————————————————————
+// Middlewares globales
+// ———————————————————————————————————————
 app.use(jsonSyntaxErrorHandler);
-
-/** Content-Type: application/json global para métodos con body */
 app.use(requireJson);
-
-/** Guardias de higiene/seguridad del body ya parseado */
 app.use(bodyHygieneGuard);
 
-/** Rutas */
+// ———————————————————————————————————————
+// Endpoints base y API pública
+// ———————————————————————————————————————
 app.get("/health", (req: Request, res: Response) => okCode(req, res));
 
+// ———————————————————————————————————————
+// Rutas API (Controller → Service → Model)
+// ———————————————————————————————————————
 app.use("/auth", auth);
 app.use("/usuarios", usuarios);
 app.use("/productos", productos);
@@ -65,14 +71,26 @@ app.use("/proveedores", proveedores);
 app.use("/clientes", clientes);
 app.use("/estadisticas", estadisticas);
 
-/** Swagger UI */
+// ———————————————————————————————————————
+// Swagger UI (Documentación API)
+// ———————————————————————————————————————
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(spec));
 
-/** 404 consistente */
-app.use((req: Request, res: Response) => sendCode(req, res, AppCode.NOT_FOUND));
+// ———————————————————————————————————————
+// 404 global
+// ———————————————————————————————————————
+app.use((req: Request, res: Response) =>
+  sendCode(req, res, AppCode.NOT_FOUND, null, {
+    message: "Recurso no encontrado",
+    httpStatus: 404,
+  })
+);
 
-/** Error handler genérico (final) */
+// ———————————————————————————————————————
+// Error handler global (último middleware)
+// ———————————————————————————————————————
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  // Errores con código de aplicación explícito
   if (typeof err?.appCode === "number") {
     return sendCode(req, res, err.appCode, null, {
       httpStatus: err.httpStatus,
@@ -80,20 +98,25 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
       detalle: err.detail ?? err.detalle,
     });
   }
-  if (err?.status === 400)
-    return sendCode(req, res, AppCode.VALIDATION_FAILED, null, { message: err.message });
-  if (err?.status === 401)
-    return sendCode(req, res, AppCode.UNAUTHORIZED, null, { message: err.message });
-  if (err?.status === 403)
-    return sendCode(req, res, AppCode.FORBIDDEN, null, { message: err.message });
-  if (err?.status === 404)
-    return sendCode(req, res, AppCode.NOT_FOUND, null, { message: err.message });
-  if (err?.code === "23505")
-    return sendCode(req, res, AppCode.DB_CONSTRAINT, null, { message: "Restricción única violada" });
 
-  return sendCode(req, res, AppCode.INTERNAL_ERROR, null, {
-    message: "Error interno del servidor",
-    detalle: process.env.NODE_ENV === "production" ? undefined : { error: String(err?.message || err) },
+  // Errores HTTP típicos
+  const mapStatus = (status: number): AppCode => {
+    switch (status) {
+      case 400: return AppCode.VALIDATION_FAILED;
+      case 401: return AppCode.UNAUTHORIZED;
+      case 403: return AppCode.FORBIDDEN;
+      case 404: return AppCode.NOT_FOUND;
+      default: return AppCode.INTERNAL_ERROR;
+    }
+  };
+
+  return sendCode(req, res, mapStatus(err?.status ?? 500), null, {
+    httpStatus: err?.status ?? 500,
+    message: err?.message || "Error interno del servidor",
+    detalle:
+      process.env.NODE_ENV === "production"
+        ? undefined
+        : { error: String(err?.message || err) },
   });
 });
 

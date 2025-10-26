@@ -6,8 +6,8 @@ import {
   ZodIssue,
   z
 } from "zod";
-import { AppCode } from "../status/codes";
-import { sendCode } from "../status/respond";
+import { AppCode } from "../../status/codes";
+import { sendCode } from "../../status/respond";
 
 /** Quita el nivel superior (body/query/params) del path para reportar el campo real */
 const isTopLevel = (k: unknown) => k === "body" || k === "query" || k === "params";

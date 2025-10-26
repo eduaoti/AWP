@@ -1,43 +1,39 @@
-// src/schemas/proveedor.schemas.ts
+// src/schemas/cliente.schemas.ts
 import { z } from "zod";
-import { nonEmptyTrimmed, noFlood, telefonoSoloDigitos } from "./_helpers";
+import { noFlood, telefonoSoloDigitos } from "../shared/_helpers";
 
 /* =========================================
-   Utilidades locales de validación
+   Utilidades locales
    ========================================= */
 const INVISIBLES = /[\p{Cc}\p{Cf}\u200B-\u200D\u2060]/u;      // control + zero-width
 const EMOJI = /\p{Extended_Pictographic}/u;
 
-/** Normaliza y recorta (NFKC + trim). Si es string, devuelve normalizado. */
-const normalize = (raw: unknown) => {
-  if (typeof raw === "string") return raw.normalize("NFKC").trim();
-  return raw;
-};
+/** Normaliza y recorta (NFKC + trim). */
+const normalize = (raw: unknown) => (typeof raw === "string" ? raw.normalize("NFKC").trim() : raw);
 
-/** Convierte null/"" a undefined para campos opcionales */
+/** Convierte "" a undefined en campos opcionales. */
 const emptyToUndef = (raw: unknown) => {
   const v = normalize(raw);
-  if (typeof v !== "string") return v;
-  return v === "" ? undefined : v;
+  return typeof v === "string" && v === "" ? undefined : v;
 };
 
 /* =========================================
    nombre (OBLIGATORIO)
    - 2–160
    - sin HTML, invisibles ni emojis
-   - debe contener al menos una letra
-   - no puede empezar/terminar con separadores
-   - no floods (caracter repetido 5+ veces)
+   - al menos una letra
+   - no floods (5+ repeticiones)
+   - no iniciar/terminar con separadores
    - colapsa espacios internos
    ========================================= */
-const NombreProveedor = z.preprocess(
+const NombreCliente = z.preprocess(
   normalize,
   z
     .string()
     .min(2, "nombre → Debe tener al menos 2 caracteres")
     .max(160, "nombre → No debe exceder 160 caracteres")
-    .refine((v) => !/(.)\1{4,}/.test(v), "nombre → Contenido ambiguo o repetitivo (flood)")
     .refine((v) => /\p{L}/u.test(v), "nombre → Debe contener al menos una letra")
+    .refine((v) => !/(.)\1{4,}/.test(v), "nombre → Contenido ambiguo o repetitivo (flood)")
     .refine((v) => !/[<>]/.test(v), "nombre → No se permiten etiquetas HTML (< >)")
     .refine((v) => !INVISIBLES.test(v), "nombre → No se permiten caracteres invisibles/de control")
     .refine((v) => !EMOJI.test(v), "nombre → No se permiten emojis")
@@ -47,31 +43,31 @@ const NombreProveedor = z.preprocess(
 
 /* =========================================
    telefono (OPCIONAL)
-   - limpia todo menos dígitos
-   - si viene, 10–11 dígitos exactos
-   - no todos los dígitos iguales (000000..., 999999..., etc.)
-   - mensaje con detalle del tamaño actual si falla
+   - limpia a dígitos
+   - 10–11 dígitos si viene
+   - no todos iguales
+   - error incluye longitud recibida
    ========================================= */
 const TelefonoOpt = z.preprocess(
   (raw) => {
     const v = emptyToUndef(raw);
     if (typeof v !== "string") return v;
     const digits = v.replace(/\D/g, "");
-    return digits === "" ? undefined : digits; // guardamos solo dígitos o undefined
+    return digits === "" ? undefined : digits;
   },
   telefonoSoloDigitos
     .superRefine((v, ctx) => {
-      if (!v) return; // undefined OK
+      if (!v) return;
       if (v.length < 10 || v.length > 11) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `telefono → Debe contener 10 a 11 dígitos (recibidos: ${v.length})`
+          message: `telefono → Debe contener 10 a 11 dígitos (recibidos: ${v.length})`,
         });
       }
       if (/^(\d)\1+$/.test(v)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "telefono → No puede ser una secuencia del mismo dígito (ej. 0000000000)"
+          message: "telefono → No puede ser una secuencia del mismo dígito (ej. 0000000000)",
         });
       }
     })
@@ -96,7 +92,7 @@ const ContactoOpt = z.preprocess(
     .refine((v) => !/(.)\1{4,}/.test(v), "contacto → Contenido ambiguo o repetitivo (flood)")
     .refine(
       (v) => /^[\p{L}\p{N}\s.,()\-'"&/]+$/u.test(v),
-      "contacto → Solo letras, números, espacios y . , ( ) - ' \" & /"
+      'contacto → Solo letras, números, espacios y . , ( ) - \' " & /'
     )
     .refine((v) => !/[<>]/.test(v), "contacto → No se permiten etiquetas HTML (< >)")
     .refine((v) => !INVISIBLES.test(v), "contacto → No se permiten caracteres invisibles/de control")
@@ -108,12 +104,24 @@ const ContactoOpt = z.preprocess(
 /* =========================================
    Esquema público
    ========================================= */
-export const CreateProveedorSchema = z
+export const ClienteCrearSchema = z
   .object({
-    nombre: NombreProveedor,
+    nombre: NombreCliente,
     telefono: TelefonoOpt,
-    contacto: ContactoOpt
+    contacto: ContactoOpt,
   })
   .strict();
 
-export type CreateProveedorDTO = z.infer<typeof CreateProveedorSchema>;
+export type ClienteCrearDTO = z.infer<typeof ClienteCrearSchema>;
+
+// src/schemas/cliente.schemas.ts (añadir)
+export const ClienteActualizarSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  nombre: NombreCliente,
+  telefono: TelefonoOpt,
+  contacto: ContactoOpt,
+}).strict();
+
+export const ClienteEliminarSchema = z.object({
+  id: z.coerce.number().int().positive(),
+}).strict();

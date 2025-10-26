@@ -1,7 +1,7 @@
 // src/middlewares/errors.ts
 import { NextFunction, Request, Response } from "express";
 import { ZodError, ZodIssue } from "zod";
-import { AppCode } from "../status/codes";
+import { AppCode } from "../../status/codes";
 
 /* ======================= Helpers JSON syntax / raw body ======================= */
 

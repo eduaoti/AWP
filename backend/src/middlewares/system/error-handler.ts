@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { AppCode, CodeHttp, CodeMessage } from "../status/codes";
+import { AppCode, CodeHttp, CodeMessage } from "../../status/codes";
 
 export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
   console.error("Unhandled error:", err);

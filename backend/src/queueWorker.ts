@@ -1,5 +1,5 @@
 // src/queueWorker.ts
-import { processEmailQueueOnce } from "./services/emailQueue";
+import { processEmailQueueOnce } from "./services/system/emailQueue";
 
 const EVERY = Number(process.env.EMAIL_QUEUE_INTERVAL_SECONDS || 60) * 1000;
 

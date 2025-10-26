@@ -1,7 +1,7 @@
 // src/schemas/usuarios.schemas.ts
 import { z } from "zod";
-import { emailStrict, nombrePersona } from "./common";
-import { strongPassword } from "./password";
+import { emailStrict, nombrePersona } from "../shared/common";
+import { strongPassword } from "../auth/password";
 
 /* ===== Roles permitidos ===== */
 export const rolEnum = z.enum(["admin", "editor", "lector", "jefe_inventario"]);
@@ -49,9 +49,9 @@ export const consultarUsuarioSchema = z.object({
   })
 }).strict();
 
-/* ===== Listar usuarios (paginado, orden, búsqueda) ===== */
+/* ===== Listar usuarios (paginado, orden, búsqueda) — JSON body ===== */
 export const listarUsuariosSchema = z.object({
-  query: z.object({
+  body: z.object({
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     sortBy: z.enum(["id", "nombre", "email", "rol", "creado_en"]).default("id"),

@@ -1,7 +1,7 @@
 // src/services/offline.ts
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import { pool } from "../db";
+import { pool } from "../../db";
 import { sha256 } from "./otp";
 import { Request } from "express";
 

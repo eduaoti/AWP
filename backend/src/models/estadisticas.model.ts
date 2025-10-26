@@ -1,3 +1,4 @@
+// backend/src/models/estadisticas.model.ts
 import { pool } from "../db";
 
 /* ===========================================================

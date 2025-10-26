@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "AWP MVP API",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "description": "Convención de respuestas: siempre HTTP 200. En operaciones de escritura (crear/actualizar/eliminar) se responde SOLO {codigo, mensaje}. En operaciones de listado/consulta/reportes se responde {codigo, mensaje, data}. Las alertas de bajo stock se gestionan automáticamente por un worker; la API no envía correos."
   },
   "tags": [
@@ -228,58 +228,56 @@
       }
     },
 
-    "/usuarios/nuevo": {
-      "post": {
-        "operationId": "usuariosCrear",
-        "tags": ["Usuarios"],
-        "summary": "Crear usuario",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["nombre", "email", "password", "rol"],
-                "properties": {
-                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
-                  "email": { "type": "string", "format": "email" },
-                  "password": { "type": "string", "minLength": 8 },
-                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
-                },
-                "additionalProperties": false
-              }
-            }
+  "/usuarios": {
+  "post": {
+    "operationId": "usuariosCrear",
+    "tags": ["Usuarios"],
+    "summary": "Crear usuario",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": ["nombre", "email", "password", "rol"],
+            "properties": {
+              "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "email": { "type": "string", "format": "email" },
+              "password": { "type": "string", "minLength": 8 },
+              "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+            },
+            "additionalProperties": false
           }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+        }
       }
     },
-    "/usuarios/actualizar": {
-      "put": {
-        "operationId": "usuariosActualizar",
-        "tags": ["Usuarios"],
-        "summary": "Actualizar usuario",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["id", "nombre", "email", "rol"],
-                "properties": {
-                  "id": { "type": "integer", "minimum": 1 },
-                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
-                  "email": { "type": "string", "format": "email" },
-                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
-                },
-                "additionalProperties": false
-              }
-            }
+    "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+  },
+  "put": {
+    "operationId": "usuariosActualizar",
+    "tags": ["Usuarios"],
+    "summary": "Actualizar usuario",
+    "requestBody": {
+      "required": true,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "required": ["id", "nombre", "email", "rol"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "email": { "type": "string", "format": "email" },
+              "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+            },
+            "additionalProperties": false
           }
-        },
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+        }
       }
     },
+    "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+  }
+},
     "/usuarios/eliminar": {
       "post": {
         "operationId": "usuariosEliminar",
@@ -301,15 +299,33 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "/usuarios": {
-      "get": {
-        "operationId": "usuariosListar",
-        "tags": ["Usuarios"],
-        "summary": "Listar usuarios",
-        "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
+    "/usuarios/listar": {
+  "post": {
+    "operationId": "usuariosListarPostJson",
+    "tags": ["Usuarios"],
+    "summary": "Listar usuarios (JSON-only, paginado/orden/búsqueda)",
+    "requestBody": {
+      "required": false,
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "page": { "type": "integer", "minimum": 1, "default": 1 },
+              "pageSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+              "sortBy": { "type": "string", "enum": ["id","nombre","email","rol","creado_en"], "default": "id" },
+              "sortDir": { "type": "string", "enum": ["asc","desc"], "default": "desc" },
+              "search": { "type": "string", "maxLength": 80 }
+            },
+            "additionalProperties": false
+          },
+          "example": { "page": 1, "pageSize": 20, "sortBy": "id", "sortDir": "desc", "search": "" }
+        }
       }
     },
-
+    "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
+  }
+},
     "/productos": {
       "post": {
         "operationId": "productosCrear",
@@ -652,11 +668,12 @@
         "tags": ["Estadísticas"],
         "summary": "Ventas por producto (JSON-only)",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["desde", "hasta"],
                 "properties": {
                   "desde": { "type": "string", "format": "date-time" },
                   "hasta": { "type": "string", "format": "date-time" }
@@ -676,11 +693,12 @@
         "tags": ["Estadísticas"],
         "summary": "Productos de menor venta (JSON-only)",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["desde", "hasta"],
                 "properties": {
                   "desde": { "type": "string", "format": "date-time" },
                   "hasta": { "type": "string", "format": "date-time" },
@@ -700,11 +718,12 @@
         "tags": ["Estadísticas"],
         "summary": "Más barato y más caro dentro del top N (JSON-only)",
         "requestBody": {
-          "required": false,
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["desde", "hasta"],
                 "properties": {
                   "desde": { "type": "string", "format": "date-time" },
                   "hasta": { "type": "string", "format": "date-time" },

@@ -1,6 +1,6 @@
 // src/models/proveedor.model.ts
 import { pool } from "../db";
-import type { CreateProveedorDTO } from "../schemas/proveedor.schemas";
+import type { CreateProveedorDTO } from "../schemas/domain/proveedor.schemas";
 
 /* =========================
    Normalizadores defensivos
