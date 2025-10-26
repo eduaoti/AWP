@@ -4,7 +4,7 @@ import {
   CreateProductoSchema,
   UpdateProductoSchema,
   UpdateStockMinimoSchema,
-} from "../schemas/producto.schemas";
+} from "../schemas/domain/producto.schemas";
 
 // Tipos derivados de las schemas (una sola fuente de verdad)
 export type CreateProductoDTO = z.infer<typeof CreateProductoSchema>;

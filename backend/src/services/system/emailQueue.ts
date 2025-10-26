@@ -1,7 +1,7 @@
 // src/services/emailQueue.ts  (solo paleta azul, profesional, SIN "Bajo stock")
-import { pool } from "../db";
+import { pool } from "../../db";
 import { sendMail } from "./mail";
-import { UsuarioModel } from "../models/usuario.model";
+import { UsuarioModel } from "../../models/usuario.model";
 
 const EMAIL_QUEUE_LIMIT = Number(process.env.EMAIL_QUEUE_LIMIT ?? 20);
 const EMAIL_QUEUE_MAX_ATTEMPTS = Number(process.env.EMAIL_QUEUE_MAX_ATTEMPTS ?? 5);

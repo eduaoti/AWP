@@ -1,6 +1,6 @@
 // src/schemas/common.ts
 import { z, ZodIssueCode, type RefinementCtx } from "zod";
-import { checkEmailSafety } from "../utils/emailSafety";
+import { checkEmailSafety } from "../../utils/emailSafety";
 
 /* =========================
    Utilidades de validación

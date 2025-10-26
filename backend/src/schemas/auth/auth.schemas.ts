@@ -1,6 +1,6 @@
 // src/schemas/auth.schemas.ts
 import { z } from "zod";
-import { emailStrict } from "./common";
+import { emailStrict } from "../shared/common";
 import { strongPassword } from "./password";
 
 /** Limpia deviceId: null/"" -> undefined; valida string opcional >= 3 */

@@ -1,22 +1,26 @@
 // src/routes/usuarios.routes.ts
 import { Router } from "express";
-import { createUser, deleteUser, listUsers, updateUser } from "../controllers/usuarios.controller";
-import { validate /*, validateQuery*/ } from "../middlewares/validate";
+import { validate } from "../middlewares/validation/validate"; // ← usa validate
+import * as C from "../controllers/usuarios.controller";
 import {
   crearUsuarioSchema,
   actualizarUsuarioSchema,
   eliminarUsuarioSchema,
-  // listarUsuariosSchema, // si luego quieres validar query en GET
-} from "../schemas/usuario.schemas";
+  listarUsuariosSchema,
+} from "../schemas/domain/usuario.schemas";
 
-const router = Router();
+const r = Router();
 
-// GET listado (si quieres validar query: validateQuery(listarUsuariosSchema))
-// router.get("/", validateQuery(listarUsuariosSchema), listUsers);
-router.get("/", listUsers);
+// Listar (JSON-only)
+r.post("/listar", validate(listarUsuariosSchema), C.listUsers);
 
-router.post("/nuevo", validate(crearUsuarioSchema), createUser);
-router.put("/actualizar", /* requireAuth, */ validate(actualizarUsuarioSchema), updateUser);
-router.post("/eliminar", /* requireAuth, */ validate(eliminarUsuarioSchema), deleteUser);
+// Crear
+r.post("/", validate(crearUsuarioSchema), C.createUser);
 
-export default router;
+// Actualizar
+r.put("/", validate(actualizarUsuarioSchema), C.updateUser);
+
+// Eliminar
+r.post("/eliminar", validate(eliminarUsuarioSchema), C.deleteUser);
+
+export default r;

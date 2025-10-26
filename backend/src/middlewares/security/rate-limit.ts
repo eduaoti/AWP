@@ -1,6 +1,6 @@
 // src/middlewares/rate-limit.ts
 import rateLimit from "express-rate-limit";
-import { AppCode } from "../status/codes";
+import { AppCode } from "../../status/codes";
 
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,

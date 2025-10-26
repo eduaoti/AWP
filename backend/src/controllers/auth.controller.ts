@@ -11,23 +11,25 @@ import { SecurityModel } from "../models/security.model";
 import {
   genSecretBase32, keyUri, qrDataUrl,
   verifyTotp, genTotp, genBackupCodes, sha256
-} from "../services/otp";
-import { sendMail } from "../services/mail";
+} from "../services/system/otp";
+import { sendMail } from "../services/system/mail";
 import {
   createOfflinePinForUser,
   consumeOfflinePin,
   getClientIp,
   getUserAgent
-} from "../services/offline";
-import { enqueueMail } from "../services/emailQueue";
-import { createSession, expireOldSessions, hasActiveSession } from "../services/sessions";
+} from "../services/system/offline";
+import { enqueueMail } from "../services/system/emailQueue";
+import { createSession, expireOldSessions, hasActiveSession } from "../services/system/sessions";
+
+// ⬇️ ACTUALIZADAS: utilidades de geo y red
 import {
   reverseGeocodeOSM,
   reverseGeocodeGoogle,
   inferGeo,
-  osmLink
-} from "../services/geo";
-import { isOnline } from "../services/net";
+  osmLink,
+} from "../services/utils/geo";
+import { isOnline } from "../services/utils/net";
 
 // === Config ===
 const JWT = process.env.JWT_SECRET as string;
@@ -57,6 +59,10 @@ async function sendOrQueue(email: string, subject: string, html: string) {
 
 /** Notificación con modo (online/offline) + ubicación legible (OSM → Google fallback) */
 type LoginMode = "online" | "offline";
+
+// Tipado mínimo para el reverse geocoding (evita TS2339)
+type RevGeocode = { short?: string | null };
+
 async function notifyLogin(params: {
   to: string;
   mode: LoginMode;
@@ -72,10 +78,10 @@ async function notifyLogin(params: {
   let mapHref: string | null = null;
 
   if (geo?.lat != null && geo?.lon != null) {
-    let rev = await withTimeout(reverseGeocodeOSM(geo.lat, geo.lon), 800);
+    let rev: RevGeocode | null = await withTimeout(reverseGeocodeOSM(geo.lat, geo.lon), 800);
     if (!rev) rev = await withTimeout(reverseGeocodeGoogle(geo.lat, geo.lon), 800);
 
-    const pretty = rev?.short || `${geo.lat.toFixed(5)}, ${geo.lon.toFixed(5)}`;
+    const pretty = rev?.short ?? `${geo.lat.toFixed(5)}, ${geo.lon.toFixed(5)}`;
     const acc = geo.accuracy_m ? ` (~±${Math.round(geo.accuracy_m)}m)` : "";
     whereLine = `Ubicación: ${pretty}${acc}`;
     mapHref = osmLink(geo.lat, geo.lon);

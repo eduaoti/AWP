@@ -5,9 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon --watch src --ext ts,json --exec \"ts-node src/index.ts\"",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "jest --passWithNoTests"
+    "build": "tsc -p tsconfig.json",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --coverage --runInBand --reporters=default --reporters=jest-junit",
+    "test:cov": "jest --coverage --runInBand",
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -42,14 +45,51 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@vitest/coverage-v8": "^4.0.3",
-    "jest": "^30.1.3",
+    "jest": "^30.2.0",
+    "jest-junit": "^16.0.0",
     "nodemon": "3.1.7",
     "pg-mem": "^3.0.5",
     "supertest": "^7.1.4",
-    "ts-jest": "^29.4.3",
+    "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+
+  "testMatch": [
+  "<rootDir>/__tests__/unit/controllers.auth.test.ts",
+  "<rootDir>/__tests__/unit/controllers.usuarios.test.ts",
+  "<rootDir>/__tests__/unit/controllers.usuarios.crud.test.ts",
+  "<rootDir>/__tests__/unit/middlewares.auth.test.ts"
+],
+
+
+
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/__tests__/integration/",
+      "<rootDir>/__tests__/helpers/",
+      "<rootDir>/__tests__/test-setup\\.ts$"
+    ],
+
+    "roots": ["<rootDir>/__tests__"],
+    "moduleFileExtensions": ["ts", "tsx", "js", "json"],
+    "setupFilesAfterEnv": ["<rootDir>/jest.setup.ts"],
+
+ 
+    "collectCoverage": true,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["lcov", "text", "json", "clover"],
+    "coveragePathIgnorePatterns": ["/node_modules/", ".*\\.d\\.ts$"],
+    "collectCoverageFrom": [
+      "src/controllers/**/*.ts",
+      "src/middlewares/**/*.ts",
+      "!src/**/__mocks__/**",
+      "!**/*.d.ts"
+    ]
   }
 }

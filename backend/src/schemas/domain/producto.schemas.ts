@@ -8,7 +8,7 @@ import {
   alphaUnidad,
   alphaCategoria,
   claveStrict,
-} from "./_helpers";
+} from "../shared/_helpers";
 
 /* ===========================================================
    🔧 Helper: permite "" (sin filtro) o valida con el schema dado

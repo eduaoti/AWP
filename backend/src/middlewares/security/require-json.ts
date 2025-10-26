@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import { AppCode } from "../status/codes";
-import { sendCode } from "../status/respond";
+import { AppCode } from "../../status/codes";
+import { sendCode } from "../../status/respond";
 
 /** Métodos que típicamente traen cuerpo */
 const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);

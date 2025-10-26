@@ -1,5 +1,6 @@
+// backend/src/models/movimiento.model.ts
 import { pool } from "../db";
-import type { MovimientoDTO } from "../schemas/movimiento.schemas";
+import type { MovimientoDTO } from "../schemas/domain/movimiento.schemas";
 
 /* =========================
    Tipos

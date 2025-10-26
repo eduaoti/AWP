@@ -1,47 +1,68 @@
-# --- Ignora lo común en cualquier ruta ---
+# ---------------------------
+# Ignora comunes (en todo el repo)
+# ---------------------------
 node_modules/
 dist/
 *.log
+*.tmp
 .DS_Store
+Thumbs.db
 
-# Variables de entorno
+# Cobertura / análisis
+coverage/
+.scannerwork/
+
+# Compilación TS
+*.tsbuildinfo
+
+# Env (no subir credenciales)
 .env
 .env.*
+!.env.example
 
-# --- Ignorar TODO en la raíz excepto lo que whitelisteamos abajo ---
-/*
+# Archivos editor/OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 
-# Mantener el propio .gitignore y el README
-!/.gitignore
+# Docker artefacts locales
+**/.docker/
+**/.cache/
+
+# ---------------------------
+# Estructura monorepo (backend/)
+# ---------------------------
+
+# Dependencias y builds dentro de subcarpetas
+**/node_modules/
+**/dist/
+
+# Mantener documentación y configs en control
 !/README.md
+!/**/README.md
+!/**/docs/
+!/**/docs/**
 
-# Mantener archivos base del proyecto en la raíz
-!/package.json
-!/package-lock.json
-!/pnpm-lock.yaml
-!/yarn.lock
-!/tsconfig.json
-!/tsconfig.*.json
-!/eslint.config.*
-!/.eslintrc*
-!/.prettierrc*
-!/.npmrc
-!/.nvmrc
-!/vite.config.*
-!/nest-cli.json
-!/nodemon.json
+# Mantener archivos de configuración
+!/**/package.json
+!/**/package-lock.json
+!/**/tsconfig.json
+!/**/tsconfig.*.json
+!/.gitignore
 
-# Mantener carpetas principales del proyecto
-!/src/
-!/public/
-!/config/
-!/prisma/
-!/migrations/
-!/scripts/
-!/assets/
+# Base paths que sí queremos versionar
+!/backend/
+!/backend/src/
+!/backend/db/
+!/backend/docs/
+!/backend/.env.example
 
-# Dentro de las carpetas mantenidas, vuelve a ignorar lo no deseado
-src/**/node_modules/
-src/**/dist/
-public/**/node_modules/
-public/**/dist/
+# Dentro de backend: vuelve a ignorar lo que no sirve en Git
+backend/**/node_modules/
+backend/**/dist/
+backend/**/.DS_Store
+backend/**/coverage/
+
+# SQL dumps locales
+**/*.dump
+**/*.sql.backup

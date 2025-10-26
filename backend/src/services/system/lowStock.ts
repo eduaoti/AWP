@@ -1,12 +1,12 @@
 // src/services/lowStock.ts  (1 solo correo por ciclo; asuntos sin "Bajo stock")
-import { pool } from "../db";
+import { pool } from "../../db";
 import {
   sendNowOrEnqueue,
   buildSingleProductHtml,
   buildResolvedHtml,
   enqueueLowStockAlertToChief, // ⬅️ nuevo: batch mail
 } from "./emailQueue";
-import { UsuarioModel } from "../models/usuario.model";
+import { UsuarioModel } from "../../models/usuario.model";
 
 const REMINDER_EVERY_MINUTES = Number(process.env.LOW_STOCK_REMINDER_MINUTES ?? 60);
 

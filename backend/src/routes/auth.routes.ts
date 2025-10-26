@@ -9,7 +9,7 @@ import {
   solicitarRecuperacion,
   confirmarRecuperacion
 } from "../controllers/auth.controller";
-import { validateBody } from "../middlewares/validate";
+import { validateBody } from "../middlewares/validation/validate";
 import {
   LoginPasswordSchema,
   LoginTotpSchema,
@@ -18,14 +18,14 @@ import {
   OtpSetupConfirmSchema,
   RecoveryRequestSchema,
   RecoveryConfirmSchema
-} from "../schemas/auth.schemas";
-import { requireAuth } from "../middlewares/auth";
+} from "../schemas/auth/auth.schemas";
+import { requireAuth } from "../middlewares/security/auth";
 import { z } from "zod";
 import {
   listMySessions,
   revokeSession,
   revokeAllSessions
-} from "../services/sessions";
+} from "../services/system/sessions";
 
 const r = Router();
 

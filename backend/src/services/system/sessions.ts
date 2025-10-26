@@ -1,5 +1,5 @@
 // src/services/sessions.ts
-import { pool } from "../db";
+import { pool } from "../../db";
 
 type Geo = { lat?: number; lon?: number; accuracy_m?: number };
 
