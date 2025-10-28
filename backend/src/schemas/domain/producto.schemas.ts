@@ -1,4 +1,3 @@
-// src/schemas/producto.schemas.ts
 import { z } from "zod";
 import {
   safeText,
@@ -8,6 +7,8 @@ import {
   alphaUnidad,
   alphaCategoria,
   claveStrict,
+  hasHtmlLike,
+  hasRiskyJs,
 } from "../shared/_helpers";
 
 /* ===========================================================
@@ -28,26 +29,22 @@ const Nombre = safeText("nombre", 3, 120).and(noFlood("nombre"));
 
 /** Descripción: opcional, trim/collapse, ≤ 240, sin HTML/JS ni floods */
 const Descripcion = z
-  // Normaliza: si es string → trim; si no, deja tal cual (para que .optional() funcione)
   .preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string())
-  // Convierte a ZodString para poder usar .max/.refine con types correctos
   .pipe(
     z
       .string()
       .max(240, { message: "descripcion → No debe exceder 240 caracteres" })
-      .refine((v: string) => !/<[^>]*>|<|>|&lt;|&gt;/i.test(v), {
+      .refine((v: string) => !hasHtmlLike(v), {
         message: "descripcion → HTML/JS no permitido",
       })
-      .refine(
-        (v: string) => !/(script|onerror|onload|onclick|onmouseover|javascript:)/i.test(v),
-        { message: "descripcion → Contenido potencialmente peligroso" }
-      )
+      .refine((v: string) => !hasRiskyJs(v), {
+        message: "descripcion → Contenido potencialmente peligroso",
+      })
       .refine((v: string) => !/(.)\1{4,}/.test(v), {
         message: "descripcion → Contenido ambiguo o repetitivo",
       })
   )
   .optional();
-
 
 /** 👉 'clave' estricta: solo [A-Za-z0-9-], sin “--”, sin iniciar/terminar con -, máx 10 */
 const Clave = claveStrict("clave", 10);
@@ -60,16 +57,15 @@ export const CreateProductoSchema = z
   .object({
     clave: Clave,
     nombre: Nombre,
-    unidad: alphaUnidad,                        // validación/normalización
-    descripcion: Descripcion,                   // opcional ya arriba
-    categoria: alphaCategoria,                  // OBLIGATORIA (segura)
-    precio: positiveMoney("precio"),            // > 0, 2 decimales, tope razonable
-    stock_minimo: nonNegativeInt("stock_minimo"), // entero ≥ 0
-    stock_actual: nonNegativeInt("stock_actual"), // entero ≥ 0
+    unidad: alphaUnidad,
+    descripcion: Descripcion,
+    categoria: alphaCategoria,
+    precio: positiveMoney("precio"),
+    stock_minimo: nonNegativeInt("stock_minimo"),
+    stock_actual: nonNegativeInt("stock_actual"),
   })
   .strict()
   .superRefine((obj, ctx) => {
-    // coherencia de stock
     if (obj.stock_minimo > obj.stock_actual) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -77,7 +73,6 @@ export const CreateProductoSchema = z
         path: ["stock_minimo"],
       });
     }
-    // nombre no debe ser solo dígitos/guiones ni idéntico a la clave
     if (/^[\d-]+$/.test(obj.nombre)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -263,7 +258,6 @@ export const ProductoListInput = z
 
 /* ===========================================================
    ✅ GET unificado: /productos/findbycontainerignorecase (por QUERY)
-   - Acepta "" como “sin filtro”, valida fuerte si traen valor
    =========================================================== */
 
 export const ProductoFindQuerySchema = z
