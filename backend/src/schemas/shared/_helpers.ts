@@ -1,4 +1,3 @@
-// src/schemas/_helpers.ts
 import { z } from "zod";
 
 /* ===========================================================
@@ -8,22 +7,51 @@ import { z } from "zod";
 export const collapseSpaces = (s: string) => s.replace(/\s+/g, " ");
 
 /* ===========================================================
-   🔒 HTML/JS (rechazo)
+   🔒 HTML/JS (rechazo) — sin regex costosas
    =========================================================== */
-export const noHtmlJs = (campo: string) => {
-  const TAG_OR_LT_GT = /<[^>]*>|<|>|&lt;|&gt;/i;
-  const SCRIPTY = /(script|onerror|onload|onclick|onmouseover|javascript:)/i;
 
-  // Usamos preprocess para dejar string limpio primero
-  return z.preprocess(
+/** Detecta contenido “tipo HTML” o &lt;/&gt; con escaneo lineal O(n). */
+export function hasHtmlLike(s: string): boolean {
+  const t = s.toLowerCase();
+  if (t.includes("&lt;") || t.includes("&gt;")) return true;
+
+  // Busca cualquier '<' seguido de letra, '/', '!' o '?' y un '>' después.
+  for (let i = s.indexOf("<"); i !== -1; i = s.indexOf("<", i + 1)) {
+    const next = s[i + 1];
+    if (next == null) return true; // '<' al final → sospechoso
+    if (
+      (next >= "a" && next <= "z") ||
+      (next >= "A" && next <= "Z") ||
+      next === "/" ||
+      next === "!" ||
+      next === "?"
+    ) {
+      const close = s.indexOf(">", i + 2);
+      if (close !== -1) return true; // hay un cierre
+      return true; // sin cierre: lo tratamos como HTML igual
+    }
+  }
+  return false;
+}
+
+/** Palabras/atributos peligrosos típicos (sin regex, lineal). */
+export function hasRiskyJs(s: string): boolean {
+  const t = s.toLowerCase();
+  if (t.includes("javascript:")) return true;
+  const attrs = ["onerror", "onload", "onclick", "onmouseover"];
+  for (const a of attrs) if (t.includes(a)) return true;
+  return false;
+}
+
+export const noHtmlJs = (campo: string) =>
+  z.preprocess(
     (v) => (typeof v === "string" ? v.trim() : v),
     z
       .string()
-      .refine((v) => !TAG_OR_LT_GT.test(v) && !SCRIPTY.test(v), {
+      .refine((v) => !(hasHtmlLike(v) || hasRiskyJs(v)), {
         message: `${campo} → Contenido potencialmente peligroso (HTML/JS no permitido)`,
       })
   );
-};
 
 /* ===========================================================
    🔡 Cadenas
@@ -50,14 +78,17 @@ export const noFlood = (campo: string) =>
 
 /** Texto “seguro”: no vacío, límites y sin HTML/JS. */
 export const safeText = (campo: string, min: number, max: number) =>
-  z.preprocess(
-    (v) => (typeof v === "string" ? collapseSpaces((v as string).trim()) : v),
-    z
-      .string()
-      .min(1, { message: `${campo} → Campo requerido` })
-      .min(min, { message: `${campo} → Debe tener al menos ${min} caracteres` })
-      .max(max, { message: `${campo} → No debe exceder ${max} caracteres` })
-  ).and(noHtmlJs(campo)).and(noFlood(campo));
+  z
+    .preprocess(
+      (v) => (typeof v === "string" ? collapseSpaces((v as string).trim()) : v),
+      z
+        .string()
+        .min(1, { message: `${campo} → Campo requerido` })
+        .min(min, { message: `${campo} → Debe tener al menos ${min} caracteres` })
+        .max(max, { message: `${campo} → No debe exceder ${max} caracteres` })
+    )
+    .and(noHtmlJs(campo))
+    .and(noFlood(campo));
 
 /* ===========================================================
    🔢 Números
@@ -168,7 +199,7 @@ export const claveStrict = (campo = "clave", maxLen = 10) =>
 /** Teléfono: exactamente 10–11 dígitos (se eliminan símbolos y espacios). */
 export const telefonoSoloDigitos = z
   .string()
-  .transform((v: string) => (v ?? "").replace(/\D/g, "")) // quita todo lo que no es dígito
+  .transform((v: string) => (v ?? "").replace(/\D/g, ""))
   .refine((v) => v.length === 0 || (v.length >= 10 && v.length <= 11), {
     message: "telefono → Debe contener 10 a 11 dígitos",
   });

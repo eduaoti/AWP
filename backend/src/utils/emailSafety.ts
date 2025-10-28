@@ -1,4 +1,3 @@
-// src/utils/emailSafety.ts
 import * as punycode from "punycode";
 
 /** Proveedores comunes (para detectar typos por distancia de edición) */
@@ -11,9 +10,8 @@ const COMMON_PROVIDERS = [
 /** Conjunto para chequear rápido si el dominio ya es “bien conocido” */
 const WELL_KNOWN = new Set(COMMON_PROVIDERS);
 
-/** Mapa de typos frecuentes => sugerencia correcta (estos sí pueden ser “errores”) */
+/** Mapa de typos frecuentes => sugerencia correcta */
 const TYPO_MAP: Record<string, string> = {
-  // Gmail
   "gmal.com": "gmail.com",
   "gmial.com": "gmail.com",
   "gmaill.com": "gmail.com",
@@ -21,21 +19,18 @@ const TYPO_MAP: Record<string, string> = {
   "gmai.com": "gmail.com",
   "gmail.co": "gmail.com",
   "gmail.con": "gmail.com",
-  // Hotmail / Outlook
   "hotnail.com": "hotmail.com",
   "hotmai.com": "hotmail.com",
   "hotmial.com": "hotmail.com",
   "outlok.com": "outlook.com",
   "outloo.com": "outlook.com",
-  // Yahoo
   "yaho.com": "yahoo.com",
   "yhaoo.com": "yahoo.com",
   "yahho.com": "yahoo.com",
-  // Proton
   "proton.com": "proton.me"
 };
 
-/** Lista (ejemplo) de dominios desechables/temporales */
+/** Dominios desechables/temporales (ejemplo) */
 const DISPOSABLE_DOMAINS = new Set<string>([
   "mailinator.com", "10minutemail.com", "guerrillamail.com",
   "yopmail.com", "trashmail.com", "tempmail.dev",
@@ -43,9 +38,7 @@ const DISPOSABLE_DOMAINS = new Set<string>([
 ]);
 
 /** TLDs no permitidas por política (opcional) */
-const FORBIDDEN_TLDS = new Set<string>([
-  "zip", "mov"
-]);
+const FORBIDDEN_TLDS = new Set<string>(["zip", "mov"]);
 
 function isAscii(s: string) { return /^[\x00-\x7F]*$/.test(s); }
 function hasConsecutiveDots(s: string) { return s.includes(".."); }
@@ -61,38 +54,36 @@ function hasUnderscore(label: string) {
   return label.includes("_");
 }
 function baseDomain(domain: string) {
-  // Regresa los últimos 2 labels (e.g., sub.mailinator.com -> mailinator.com)
   const parts = domain.split(".").filter(Boolean);
   if (parts.length <= 2) return domain;
   return parts.slice(-2).join(".");
+}
+
+/** Quita comillas dobles en extremos sin regex (O(n)) */
+function stripEdgeQuotes(s: string) {
+  let start = 0, end = s.length;
+  const QUOTE = 34; // '"'
+  while (start < end && s.charCodeAt(start) === QUOTE) start++;
+  while (end > start && s.charCodeAt(end - 1) === QUOTE) end--;
+  return s.slice(start, end);
 }
 
 export type EmailSafetyResult = {
   ok: boolean;
   errors: string[];
   warnings: string[];
-  /** sugerencia de dominio cuando se detecta typo */
   suggestion?: string;
 };
 
 /**
- * Valida email con reglas endurecidas:
- * - Longitudes (total ≤ 254, local ≤ 64)
- * - Formato básico, puntos consecutivos, puntos al inicio/fin
- * - Caracteres ilegales en parte local
- * - Reglas de dominio (labels sin '_' y sin guion al inicio/fin)
- * - TLD válida y TLDs no permitidas (p. ej., .zip/.mov)
- * - Dominios desechables (considerando subdominios)
- * - Typos exactos del mapa (error) y distancia de edición 1 (solo warning)
- * - IDN/Punycode (aviso); convierte a ASCII para validar
- * - Subaddressing (+tag) → warning informativo
+ * Valida email con reglas endurecidas.
  */
 export function checkEmailSafety(emailRaw: string): EmailSafetyResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   let suggestion: string | undefined;
 
-  const email = emailRaw.normalize("NFKC").trim().replace(/^"+|"+$/g, "");
+  const email = stripEdgeQuotes(emailRaw.normalize("NFKC").trim());
   if (!email) return { ok: false, errors: ["Email vacío"], warnings: [] };
 
   if (email.length > 254) {
@@ -111,11 +102,9 @@ export function checkEmailSafety(emailRaw: string): EmailSafetyResult {
   const local = email.slice(0, at);
   let domain = email.slice(at + 1).toLowerCase();
 
-  if (local.length > 64) {
-    errors.push("Parte local demasiado larga (máx. 64)");
-  }
+  if (local.length > 64) errors.push("Parte local demasiado larga (máx. 64)");
 
-  // Subaddressing (+tag) → útil, avisamos por si no era intencional
+  // Subaddressing (+tag)
   if (/\+/.test(local)) {
     warnings.push("El email incluye etiqueta con '+'. Verifica que sea intencional.");
   }
@@ -147,7 +136,7 @@ export function checkEmailSafety(emailRaw: string): EmailSafetyResult {
   if (!domain.includes(".")) errors.push("Dominio sin TLD");
 
   const labels = domain.split(".");
-  if (labels.some(l => !l || l.length > 63)) {
+  if (labels.some((l) => !l || l.length > 63)) {
     errors.push("Etiqueta de dominio vacía o de longitud inválida");
   }
   if (labels.some(hasUnderscore)) {
@@ -170,13 +159,12 @@ export function checkEmailSafety(emailRaw: string): EmailSafetyResult {
     errors.push("Dominio desechable/temporal no permitido");
   }
 
-  // 1) Typos exactos del mapa → tratamos como ERROR
+  // Typos exactos del mapa → ERROR con sugerencia
   if (TYPO_MAP[bdom]) {
     suggestion = TYPO_MAP[bdom];
     errors.push(`Dominio parece un typo; ¿quisiste decir ${suggestion}?`);
   } else {
-    // 2) Distancia 1 contra proveedores comunes → SOLO WARNING
-    //    y SOLO si NO es ya un dominio bien conocido.
+    // Distancia 1 contra proveedores comunes → SOLO WARNING
     if (!WELL_KNOWN.has(bdom)) {
       for (const prov of COMMON_PROVIDERS) {
         if (levenshtein(bdom, prov) === 1) {

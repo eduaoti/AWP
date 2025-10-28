@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 // --- Config (sin credenciales hardcodeadas) ---
-const APP_DB_NAME = process.env.APP_DB_NAME?.trim() || "seguridad";
+const APP_DB_NAME = (process.env.APP_DB_NAME ?? "seguridad").trim();
 const ADMIN_DATABASE_URL = process.env.ADMIN_DATABASE_URL;
 const DATABASE_URL = process.env.DATABASE_URL;
 const DB_SSL =
@@ -16,6 +16,12 @@ function assertSafeDbName(name: string) {
   if (!/^[A-Za-z0-9_]+$/.test(name)) {
     throw new Error("APP_DB_NAME contiene caracteres inválidos. Usa solo [A-Za-z0-9_].");
   }
+}
+
+// Identificador SQL seguro: "Nombre" (sin permitir caracteres peligrosos)
+function safeIdent(name: string): string {
+  assertSafeDbName(name);
+  return `"${name}"`;
 }
 
 export const pool = new Pool({
@@ -40,15 +46,21 @@ export async function initDb() {
   assertEnv();
   assertSafeDbName(APP_DB_NAME);
 
-  const admin = new Pool({ connectionString: ADMIN_DATABASE_URL, ssl: DB_SSL });
+  const admin = new Pool({ connectionString: ADMIN_DATABASE_URL!, ssl: DB_SSL });
 
   try {
-    const exists = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [APP_DB_NAME]);
+    const exists = await admin.query(
+      "SELECT 1 FROM pg_database WHERE datname = $1",
+      [APP_DB_NAME]
+    );
+
     if (exists.rowCount === 0) {
-      await admin.query(`CREATE DATABASE "${APP_DB_NAME}"`);
-      console.log(`✅ Base de datos "${APP_DB_NAME}" creada.`);
+      const createSql = `CREATE DATABASE ${safeIdent(APP_DB_NAME)}`;
+      // NOSONAR (S2077): no se pueden parametrizar identificadores; el nombre se valida con assertSafeDbName/safeIdent.
+      await admin.query(createSql);
+      console.log(`✅ Base de datos ${safeIdent(APP_DB_NAME)} creada.`);
     } else {
-      console.log(`ℹ️ Base de datos "${APP_DB_NAME}" ya existe.`);
+      console.log(`ℹ️ Base de datos ${safeIdent(APP_DB_NAME)} ya existe.`);
     }
   } catch (err) {
     console.error("⚠️ Error verificando/creando la BD:", err);
@@ -56,10 +68,14 @@ export async function initDb() {
     await admin.end();
   }
 
+  // Aplicar init.sql sobre la BD de la app
   try {
     const initPath = path.join(process.cwd(), "db", "init.sql");
-    const sql = await fs.readFile(initPath, "utf8");
-    if (sql.trim()) {
+    const sql = (await fs.readFile(initPath, "utf8")).trim();
+
+    if (sql) {
+      // Nota: este SQL proviene del repositorio de la app (no de entrada del usuario).
+      // Si Sonar marcara S2077 aquí, puedes añadir un comentario NOSONAR justificado.
       await pool.query(sql);
       console.log("✅ Esquema inicial listo (init.sql).");
     } else {
