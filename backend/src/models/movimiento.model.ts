@@ -1,25 +1,24 @@
-// backend/src/models/movimiento.model.ts
 import { pool } from "../db";
 import type { MovimientoDTO } from "../schemas/domain/movimiento.schemas";
 
-/* =========================
-   Tipos
-   ========================= */
+/* ===========================================================
+   Tipos base del modelo
+   =========================================================== */
 type MovimientoRow = {
   id: number;
-  fecha: string;
+  fecha: string; // fecha del movimiento
   tipo: "entrada" | "salida";
   producto_id: number;
   cantidad: number;
   documento?: string | null;
   responsable?: string | null;
-  proveedor_id?: number | null; // solo entradas
-  cliente_id?: number | null;   // solo salidas
+  proveedor_id?: number | null; // solo en entradas
+  cliente_id?: number | null;   // solo en salidas
 };
 
-/* =========================
-   Helpers de error consistentes
-   ========================= */
+/* ===========================================================
+   Helper: creación de errores consistentes
+   =========================================================== */
 function apiError(status: number, code: string, message: string, extra?: any) {
   const err: any = new Error(message);
   err.status = status;
@@ -28,17 +27,17 @@ function apiError(status: number, code: string, message: string, extra?: any) {
   return err;
 }
 
-/* =========================
-   Normalizadores suaves
-   ========================= */
+/* ===========================================================
+   Helper: normalización de textos
+   =========================================================== */
 function cleanTextOrNull(v?: string | null) {
   const s = typeof v === "string" ? v.normalize("NFKC").trim() : v ?? null;
   return s && s.length ? s : null;
 }
 
-/* =========================
-   Pre-chequeos de existencia
-   ========================= */
+/* ===========================================================
+   Pre-chequeos de existencia (FKs)
+   =========================================================== */
 async function getProductoByClaveForUpdate(client: any, clave: string) {
   const { rows } = await client.query(
     `SELECT * FROM productos WHERE LOWER(clave) = LOWER($1) FOR UPDATE`,
@@ -62,13 +61,7 @@ async function ensureCliente(client: any, id: number) {
 }
 
 /* ===========================================================
-   ✅ ÚNICO REGISTRO DE MOVIMIENTO (entrada o salida) POR CLAVE
-   - entrada: boolean (true=entrada, false=salida)
-   - producto_clave: string
-   - cantidad: entero > 0
-   - documento/responsable opcionales (sanitizados)
-   - proveedor_id opcional solo para entrada
-   - cliente_id requerido solo para salida
+   Registrar un movimiento (entrada o salida)
    =========================================================== */
 export async function registrarMovimiento(
   data: MovimientoDTO
@@ -77,10 +70,10 @@ export async function registrarMovimiento(
   try {
     await client.query("BEGIN");
 
-    // 1) Producto por CLAVE (con lock)
+    // 🔹 1. Obtener producto y bloquear fila para consistencia
     const prod = await getProductoByClaveForUpdate(client, data.producto_clave);
 
-    // 2) Validaciones condicionales de FK para evitar errores 23503
+    // 🔹 2. Validar FKs
     const esEntrada = !!data.entrada;
     if (esEntrada) {
       await ensureProveedorIfAny(client, data.proveedor_id ?? null);
@@ -88,17 +81,15 @@ export async function registrarMovimiento(
       await ensureCliente(client, data.cliente_id as number);
     }
 
+    // 🔹 3. Validaciones de cantidad y stock
     const cant = Number(data.cantidad);
     const stockActual = Number(prod.stock_actual);
-
-    // 3) Regla de negocio para salida: no permitir salidas > stock
     if (!esEntrada && cant > stockActual) {
       throw apiError(400, "STOCK_INSUFICIENTE", "Cantidad solicitada excede el stock disponible");
     }
 
-    // 4) Actualizar stock
+    // 🔹 4. Calcular nuevo stock y actualizar producto
     const nuevoStock = esEntrada ? stockActual + cant : stockActual - cant;
-
     const { rows: updRows } = await client.query(
       `UPDATE productos
          SET stock_actual = $1, actualizado_en = NOW()
@@ -108,63 +99,43 @@ export async function registrarMovimiento(
     );
     const productoActualizado = updRows[0];
 
-    // 5) Insertar movimiento
-    if (esEntrada) {
-      const { rows: movRows } = await client.query(
-        `INSERT INTO movimientos
-           (fecha, tipo, producto_id, cantidad, documento, responsable, proveedor_id)
-         VALUES
-           (COALESCE($1, NOW()), 'entrada', $2, $3, $4, $5, $6)
-         RETURNING *`,
-        [
-          data.fecha ?? null,
-          prod.id,
-          cant,
-          cleanTextOrNull(data.documento),
-          cleanTextOrNull(data.responsable),
-          data.proveedor_id ?? null,
-        ]
-      );
-      await client.query("COMMIT");
-      return { movimiento: movRows[0], producto: productoActualizado };
-    } else {
-      const { rows: movRows } = await client.query(
-        `INSERT INTO movimientos
-           (fecha, tipo, producto_id, cantidad, documento, responsable, cliente_id)
-         VALUES
-           (COALESCE($1, NOW()), 'salida', $2, $3, $4, $5, $6)
-         RETURNING *`,
-        [
-          data.fecha ?? null,
-          prod.id,
-          cant,
-          cleanTextOrNull(data.documento),
-          cleanTextOrNull(data.responsable),
-          data.cliente_id as number,
-        ]
-      );
-      await client.query("COMMIT");
-      return { movimiento: movRows[0], producto: productoActualizado };
-    }
+    // 🔹 5. Insertar movimiento con fecha (si no se pasa, usar NOW())
+    const { rows: movRows } = await client.query(
+      `INSERT INTO movimientos
+         (fecha, tipo, producto_id, cantidad, documento, responsable, proveedor_id, cliente_id)
+       VALUES
+         (COALESCE($1, NOW()), $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        data.fecha ?? null,
+        esEntrada ? "entrada" : "salida",
+        prod.id,
+        cant,
+        cleanTextOrNull(data.documento),
+        cleanTextOrNull(data.responsable),
+        esEntrada ? data.proveedor_id ?? null : null,
+        !esEntrada ? data.cliente_id ?? null : null,
+      ]
+    );
+
+    await client.query("COMMIT");
+    return { movimiento: movRows[0], producto: productoActualizado };
   } catch (e: any) {
     await client.query("ROLLBACK");
 
-    // Traducciones de errores de BD
+    // 🔹 Traducciones específicas de errores SQL
     if (e?.code === "23503") {
       const c = e?.constraint ?? "";
-      if (c.includes("movimientos_cliente_id_fkey")) {
+      if (c.includes("movimientos_cliente_id_fkey"))
         throw apiError(404, "NOT_FOUND", "Cliente no encontrado", { constraint: c });
-      }
-      if (c.includes("movimientos_proveedor_id_fkey")) {
+      if (c.includes("movimientos_proveedor_id_fkey"))
         throw apiError(404, "NOT_FOUND", "Proveedor no encontrado", { constraint: c });
-      }
-      if (c.includes("movimientos_producto_id_fkey")) {
+      if (c.includes("movimientos_producto_id_fkey"))
         throw apiError(404, "NOT_FOUND", "Producto no encontrado", { constraint: c });
-      }
       throw apiError(400, "DB_FK", "Referencia inválida (clave foránea).", { constraint: c });
     }
+
     if (e?.code === "23514") {
-      // CHECK constraints (cantidad > 0, etc.)
       throw apiError(
         400,
         "VALIDATION_FAILED",
@@ -172,6 +143,7 @@ export async function registrarMovimiento(
         { constraint: e?.constraint }
       );
     }
+
     if (e?.status) throw e;
 
     throw apiError(500, "DB_ERROR", "Error de base de datos al registrar movimiento.", e?.message ?? e);
@@ -181,7 +153,7 @@ export async function registrarMovimiento(
 }
 
 /* ===========================================================
-   Listado con límites defensivos + joins amigables
+   Listar movimientos (GET) con paginación y joins informativos
    =========================================================== */
 export async function listarMovimientos(limit = 50, offset = 0) {
   const lim = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 50;
@@ -189,19 +161,34 @@ export async function listarMovimientos(limit = 50, offset = 0) {
 
   const { rows } = await pool.query(
     `SELECT
-        m.id, m.fecha, m.tipo, m.producto_id, m.cantidad,
-        m.documento, m.responsable, m.proveedor_id, m.cliente_id,
-        p.clave     AS producto_clave,
-        p.nombre    AS producto_nombre,
-        prov.nombre AS proveedor_nombre,
-        cli.nombre  AS cliente_nombre
+        m.id,
+        m.fecha,
+        m.tipo,
+        m.producto_id,
+        m.cantidad,
+        m.documento,
+        m.responsable,
+        m.proveedor_id,
+        m.cliente_id,
+        p.clave       AS producto_clave,
+        p.nombre      AS producto_nombre,
+        prov.nombre   AS proveedor_nombre,
+        cli.nombre    AS cliente_nombre
      FROM movimientos m
-     JOIN productos   p   ON p.id = m.producto_id
+     JOIN productos p ON p.id = m.producto_id
      LEFT JOIN proveedores prov ON prov.id = m.proveedor_id
-     LEFT JOIN clientes   cli  ON cli.id = m.cliente_id
+     LEFT JOIN clientes cli ON cli.id = m.cliente_id
      ORDER BY m.fecha DESC, m.id DESC
      LIMIT $1 OFFSET $2`,
     [lim, off]
   );
-  return rows;
+
+  return {
+    items: rows,
+    meta: {
+      limit: lim,
+      offset: off,
+      count: rows.length,
+    },
+  };
 }

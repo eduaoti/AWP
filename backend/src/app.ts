@@ -8,8 +8,9 @@ import auth from "./routes/auth.routes";
 import productos from "./routes/productos.routes";
 import movimientos from "./routes/movimientos.routes";
 import proveedores from "./routes/proveedores.routes";
-import clientes from "./routes/clientes.routes";
+import almacenes from "./routes/almacenes.routes";
 import estadisticas from "./routes/estadisticas.routes";
+import categorias from "./routes/categorias.routes"; // ✅ NUEVO: módulo de categorías
 
 import spec from "../docs/openapi.json";
 import { ok as okCode, sendCode } from "./status/respond";
@@ -68,8 +69,9 @@ app.use("/usuarios", usuarios);
 app.use("/productos", productos);
 app.use("/movimientos", movimientos);
 app.use("/proveedores", proveedores);
-app.use("/clientes", clientes);
+app.use("/almacenes", almacenes);
 app.use("/estadisticas", estadisticas);
+app.use("/categorias", categorias); // ✅ NUEVO: endpoint para CRUD de categorías
 
 // ———————————————————————————————————————
 // Swagger UI (Documentación API)
@@ -90,7 +92,6 @@ app.use((req: Request, res: Response) =>
 // Error handler global (último middleware)
 // ———————————————————————————————————————
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
-  // Errores con código de aplicación explícito
   if (typeof err?.appCode === "number") {
     return sendCode(req, res, err.appCode, null, {
       httpStatus: err.httpStatus,
@@ -99,7 +100,6 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
     });
   }
 
-  // Errores HTTP típicos
   const mapStatus = (status: number): AppCode => {
     switch (status) {
       case 400: return AppCode.VALIDATION_FAILED;

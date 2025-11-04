@@ -230,16 +230,31 @@ export const validateBody =
   };
 
 /** Valida y sobrescribe req.query con los valores parseados/transformados */
+/** Valida y sobrescribe req.query con los valores parseados/transformados */
 export const validateQuery =
   <T extends ZodTypeAny>(schema: T) =>
   (req: Request, res: Response, next: NextFunction) => {
-    const parsed = (schema as any).safeParse({ query: req.query });
-    if (parsed.success) {
-      if (parsed.data?.query !== undefined) req.query = parsed.data.query as any;
-      return next();
+    try {
+      // 🧩 Si viene anidado como req.query.query (por axios o React Router)
+      const rawQuery: any =
+        typeof req.query.query === "object" && Object.keys(req.query.query).length
+          ? req.query.query
+          : req.query;
+
+      const parsed = (schema as any).safeParse(rawQuery);
+
+      if (parsed.success) {
+        req.query = parsed.data as any;
+        return next();
+      }
+
+      // ❌ Si hay errores, reúsamos el manejador estándar
+      return handleErr(parsed.error, req, res, next);
+    } catch (err) {
+      return handleErr(err, req, res, next);
     }
-    return handleErr(parsed.error, req, res, next);
   };
+
 
 /** Valida y sobrescribe req.params con los valores parseados/transformados */
 export const validateParams =

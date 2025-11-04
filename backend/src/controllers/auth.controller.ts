@@ -467,32 +467,63 @@ export const confirmarSetupOtp = async (req: Request, res: Response, next: NextF
   } catch (e) { next(e); }
 };
 
-// ====== Recuperación de contraseña ======
-export const solicitarRecuperacion = async (req: Request, res: Response, next: NextFunction) => {
+export const solicitarRecuperacion = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const { email } = req.body as { email: string };
+
+    // 1️⃣ Validar existencia del usuario
     const user = await UsuarioModel.findByEmail(email);
     if (!user) {
       return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
-        message: "Validación fallida: el email no está registrado."
+        httpStatus: 200,
+        message: "El correo ingresado no está registrado.",
       });
     }
+
+    // 2️⃣ Generar token y hash
     const raw = crypto.randomBytes(24).toString("hex");
     const hash = sha256(raw);
+
+    // 3️⃣ Calcular expiración
     const mins = Number(process.env.RECOVERY_TOKEN_MINUTES || 15);
     const expira = new Date(Date.now() + mins * 60_000);
+
+    // 4️⃣ Guardar en base de datos (solo el hash)
     await SecurityModel.createRecoveryToken(user.id, hash, expira);
-    const link = `${process.env.APP_URL}/reset?token=${raw}`;
+
+    // 5️⃣ Enviar el correo con el TOKEN
     await sendOrQueue(
       user.email,
       "Recupera tu contraseña",
-      `<p>Solicitaste recuperar tu contraseña.</p>
-       <p>Enlace (expira en ${mins} min): <a href="${link}">${link}</a></p>`
+      `
+        <p>Hola ${user.nombre || "usuario"},</p>
+        <p>Solicitaste recuperar tu contraseña. Usa el siguiente <strong>token</strong> para restablecerla:</p>
+        <p style="font-size: 1.1em; background: #f4f4f4; padding: 10px; border-radius: 5px; font-family: monospace;">
+          ${raw}
+        </p>
+        <p>Este token expirará en <strong>${mins} minutos</strong>.</p>
+        <p>Ingresa este token en el formulario de recuperación de contraseña dentro del portal.</p>
+        <p>Si tú no solicitaste este cambio, puedes ignorar este mensaje.</p>
+        <br/>
+        <p>— Equipo de soporte de ${process.env.APP_BRAND || "Inventario"}</p>
+      `
     );
-    return ok(req, res, { info: "Se enviaron las instrucciones al correo." }, "Solicitud de recuperación enviada.");
-  } catch (e) { next(e); }
-};
 
+    // 6️⃣ Responder al cliente
+    return ok(
+      req,
+      res,
+      { email: user.email },
+      "Se envió el token de recuperación a tu correo electrónico."
+    );
+  } catch (e) {
+    next(e);
+  }
+};
 export const confirmarRecuperacion = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token, newPassword } = req.body as { token: string; newPassword: string };
