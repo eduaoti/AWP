@@ -8,14 +8,17 @@ export default function PrivateNavbar() {
 
   async function handleLogout() {
     try {
-      await logout(); // Llama al backend para cerrar la sesión
+      await logout();
     } catch (error) {
       console.warn("⚠️ Error cerrando sesión en backend:", error);
     } finally {
-      // Limpia el contexto y localStorage
       await logoutCtx();
       localStorage.removeItem("usuario");
       localStorage.removeItem("token");
+
+      // ✅ Guardar mensaje también en sessionStorage
+      sessionStorage.setItem("logoutMsg", "Se cerró sesión correctamente ✅");
+
       nav("/login", { replace: true });
     }
   }
@@ -33,39 +36,30 @@ export default function PrivateNavbar() {
         <Link to="/inicio" className="hover:underline">
           Inicio
         </Link>
-
         <Link to="/productos" className="hover:underline">
           Productos
         </Link>
-
-        {/* ✅ Nuevo enlace para Categorías */}
         <Link to="/categorias" className="hover:underline">
           Categorías
         </Link>
-
         <Link to="/usuarios" className="hover:underline">
           Usuarios
         </Link>
-
         <Link to="/movimientos" className="hover:underline">
           Movimientos
         </Link>
-
         <Link to="/proveedores" className="hover:underline">
           Proveedores
         </Link>
-
         <Link to="/almacenes" className="hover:underline">
           Almacenes
         </Link>
-
         <Link to="/estadisticas" className="hover:underline">
           Estadísticas
         </Link>
       </div>
 
       <div className="flex items-center space-x-4">
-        {/* ✅ Mostrar nombre del usuario desde el contexto */}
         {user && <span className="font-medium">{user.nombre}</span>}
         <button
           onClick={handleLogout}

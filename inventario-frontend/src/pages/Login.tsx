@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import TextField from "../components/TextField";
 import Button from "../components/Button";
 import Alert from "../components/Alert";
@@ -9,12 +9,27 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
   const nav = useNavigate();
-  const { setToken, setUser } = useAuth(); // ✅ Actualiza el contexto global
+  const location = useLocation();
+  const { setToken, setUser } = useAuth();
+
+  // ✅ Intentar obtener el mensaje desde sessionStorage o desde state
+  const [logoutMsg, setLogoutMsg] = useState<string | null>(
+    location.state?.logoutMsg || sessionStorage.getItem("logoutMsg")
+  );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    // 🧹 Si hay mensaje de logout, borrarlo de sessionStorage después de mostrarlo
+    if (logoutMsg) {
+      sessionStorage.removeItem("logoutMsg");
+      const timer = setTimeout(() => setLogoutMsg(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [logoutMsg]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,42 +38,32 @@ export default function Login() {
 
     try {
       const { data } = await loginPassword(email.trim(), password);
-      console.log("🔐 Respuesta del servidor:", data);
-
       const preAuth = data?.data?.preAuth;
       const msg = data?.mensaje || "";
 
-      // ✅ CASO 1: Login exitoso (con token y usuario)
+      // ✅ Login exitoso
       if (data?.data?.usuario && data?.data?.token) {
         const usuario = data.data.usuario;
         const token = data.data.token;
-
-        // 🔹 Guarda en contexto (reactivo) y en almacenamiento persistente
         setUser(usuario);
         setToken(token);
         localStorage.setItem("usuario", JSON.stringify(usuario));
         localStorage.setItem("token", token);
-
-        // 🔹 Redirige a /inicio
         nav("/inicio", { replace: true });
         return;
       }
 
-      // 🧩 CASO 2: Enrolamiento OTP requerido
+      // OTP u otros casos
       if (data?.data?.needsEnrollment && preAuth) {
         nav(`/otp-setup?preAuth=${encodeURIComponent(preAuth)}`, {
           state: { fromMsg: msg },
         });
         return;
       }
-
-      // 🧩 CASO 3: OTP online
       if (data?.data?.requiresOtp && preAuth && !data?.data?.offline) {
         nav(`/otp-verify?preAuth=${encodeURIComponent(preAuth)}`);
         return;
       }
-
-      // 🧩 CASO 4: OTP offline (PIN temporal)
       if (data?.data?.offline && preAuth) {
         const { offline } = data.data;
         nav(
@@ -70,17 +75,13 @@ export default function Login() {
         return;
       }
 
-      // ❌ Si no entra en ningún caso
       setErr("No se recibió información válida del servidor.");
     } catch (r: any) {
-      console.error("⚠️ Error en login:", r);
-
       const backendMsg =
         r?.response?.data?.mensaje ||
         r?.response?.data?.error ||
         r?.mensaje ||
         "Error al iniciar sesión";
-
       setErr(backendMsg);
     } finally {
       setLoading(false);
@@ -89,10 +90,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
-      {/* 🔹 Navbar pública */}
       <Navbar />
 
-      {/* 🔹 Contenedor principal */}
       <div className="flex-1 flex items-center justify-center p-4">
         <form
           onSubmit={onSubmit}
@@ -102,6 +101,13 @@ export default function Login() {
           <p className="text-slate-600 mb-4">
             {import.meta.env.VITE_APP_BRAND || "Portal Inventario"}
           </p>
+
+          {/* ✅ Mensaje persistente de cierre de sesión */}
+          {logoutMsg && (
+            <div className="mb-3">
+              <Alert kind="success">{logoutMsg}</Alert>
+            </div>
+          )}
 
           {/* 🔴 Mensaje de error del backend */}
           {err && (
