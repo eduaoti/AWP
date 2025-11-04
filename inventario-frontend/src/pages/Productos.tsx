@@ -33,6 +33,21 @@ export default function Productos() {
   const [loading, setLoading] = useState(false);
 
   /* ===========================================================
+     Función para obtener mensaje de error limpio
+     =========================================================== */
+  function extractErrorMessage(error: any): string {
+    return (
+      error?.response?.data?.mensaje || // ✅ solo texto del backend
+      error?.data?.mensaje ||
+      error?.response?.data?.error ||
+      error?.mensaje ||
+      error?.message ||
+      (typeof error === "string" ? error : null) ||
+      "Error inesperado"
+    );
+  }
+
+  /* ===========================================================
      Cargar datos
      =========================================================== */
   async function cargarProductos() {
@@ -40,7 +55,7 @@ export default function Productos() {
       const { data } = await listarProductos();
       setProductos(data.data.items || data.data || []);
     } catch (e: any) {
-      setErr(e?.response?.data?.mensaje || "Error al cargar productos");
+      setErr(extractErrorMessage(e));
     }
   }
 
@@ -49,7 +64,7 @@ export default function Productos() {
       const { data } = await listarCategorias();
       setCategorias(data.data || data);
     } catch (e: any) {
-      console.error(e);
+      console.warn("⚠️ Error al cargar categorías:", extractErrorMessage(e));
     }
   }
 
@@ -59,7 +74,7 @@ export default function Productos() {
   }, []);
 
   /* ===========================================================
-     Guardar producto
+     Guardar producto (crear / actualizar)
      =========================================================== */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -67,8 +82,7 @@ export default function Productos() {
     setErr(null);
     setLoading(true);
 
-    // ✅ No incluir "clave" en el body al actualizar (el backend no lo acepta)
-    const payloadBase = {
+    const payload = {
       nombre: nombre.trim(),
       unidad: unidad.trim(),
       precio: Number(precio),
@@ -80,23 +94,50 @@ export default function Productos() {
 
     try {
       if (editing) {
-        // 🔹 PUT /productos/codigo/:codigo — la clave va en la URL
-        await actualizarProducto(editing.clave, payloadBase);
-        setMsg("Producto actualizado con éxito ✅");
+        await actualizarProducto(editing.clave, payload);
+        setMsg("✅ Producto actualizado con éxito");
       } else {
-        // 🔹 POST /productos — la clave sí va en el body
-        await crearProducto({ ...payloadBase, clave: clave.trim() });
-        setMsg("Producto creado con éxito ✅");
+        await crearProducto({ ...payload, clave: clave.trim() });
+        setMsg("✅ Producto creado con éxito");
       }
 
       resetForm();
       setEditing(null);
       cargarProductos();
     } catch (e: any) {
-      setErr(e?.response?.data?.mensaje || "Error al guardar el producto");
+      setErr(extractErrorMessage(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  /* ===========================================================
+     Eliminar producto
+     =========================================================== */
+  async function handleDelete(p: Producto) {
+    if (!confirm(`¿Eliminar producto "${p.nombre}"?`)) return;
+    try {
+      await eliminarProducto(p.clave);
+      setMsg("🗑️ Producto eliminado con éxito");
+      cargarProductos();
+    } catch (e: any) {
+      setErr(extractErrorMessage(e));
+    }
+  }
+
+  /* ===========================================================
+     Editar producto
+     =========================================================== */
+  function handleEdit(p: Producto) {
+    setEditing(p);
+    setClave(p.clave);
+    setNombre(p.nombre);
+    setUnidad(p.unidad);
+    setPrecio(Number(p.precio));
+    setCategoria(p.categoria || "");
+    setStockMin(Number(p.stock_minimo));
+    setStockActual(Number(p.stock_actual));
+    setDescripcion(p.descripcion || "");
   }
 
   function resetForm() {
@@ -108,29 +149,6 @@ export default function Productos() {
     setStockMin(0);
     setStockActual(0);
     setDescripcion("");
-  }
-
-  async function handleDelete(p: Producto) {
-    if (!confirm(`¿Eliminar producto ${p.nombre}?`)) return;
-    try {
-      await eliminarProducto(p.clave);
-      setMsg("Producto eliminado con éxito");
-      cargarProductos();
-    } catch (e: any) {
-      setErr(e?.response?.data?.mensaje || "Error al eliminar");
-    }
-  }
-
-  function handleEdit(p: Producto) {
-    setEditing(p);
-    setClave(p.clave);
-    setNombre(p.nombre);
-    setUnidad(p.unidad);
-    setPrecio(Number(p.precio));
-    setCategoria(p.categoria || "");
-    setStockMin(Number(p.stock_minimo));
-    setStockActual(Number(p.stock_actual));
-    setDescripcion(p.descripcion || "");
   }
 
   /* ===========================================================
