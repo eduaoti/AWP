@@ -1,6 +1,5 @@
-// backend/src/models/cliente.model.ts
 import { pool } from "../db";
-import type { ClienteCrearDTO } from "../schemas/domain/cliente.schemas";
+import type { AlmacenCrearDTO } from "../schemas/domain/almacen.schemas";
 
 /* =========================
    Normalizadores defensivos
@@ -20,38 +19,45 @@ function safeTextOrNull(v?: string | null) {
 }
 
 /* ===========================================================
-   Listar clientes (ordenado por nombre asc; con límites defensivos)
+   Listar almacenes (paginado + defensivo)
    =========================================================== */
-export async function listarClientes(limit = 100, offset = 0) {
+export async function listarAlmacenes(limit = 100, offset = 0) {
   const lim = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 500) : 100;
   const off = Number.isFinite(offset) && offset >= 0 ? offset : 0;
 
-  const { rows } = await pool.query(
-    `SELECT id, nombre, telefono, contacto, creado_en
-       FROM clientes
-      ORDER BY nombre ASC
-      LIMIT $1 OFFSET $2`,
+  const { rows: items } = await pool.query(
+    `
+    SELECT id, nombre, telefono, contacto, creado_en
+      FROM almacenes
+     ORDER BY nombre ASC
+     LIMIT $1 OFFSET $2
+    `,
     [lim, off]
   );
-  return rows;
+
+  const { rows: totalRows } = await pool.query(
+    `SELECT COUNT(*)::int AS total FROM almacenes`
+  );
+  const total = totalRows[0]?.total ?? 0;
+
+  const meta = { total, limit: lim, offset: off, returned: items.length };
+
+  return { items, meta };
 }
 
 /* ===========================================================
-   Crear cliente con validaciones anti-duplicado (DB + precheck)
-   - Unicidad por nombre (case-insensitive + espacios normalizados)
-   - Pre-chequeo por teléfono usando solo dígitos (sin índice único)
-   - Mensajes claros y códigos coherentes
+   Crear almacén con validaciones anti-duplicado (DB + precheck)
    =========================================================== */
-export async function crearCliente(d: ClienteCrearDTO) {
+export async function crearAlmacen(d: AlmacenCrearDTO) {
   const nombreNorm = normNombre(d.nombre);
   const telefonoOrig = safeTextOrNull(d.telefono ?? undefined);
   const telefonoDigits = phoneDigits(telefonoOrig);
   const contacto = safeTextOrNull(d.contacto ?? undefined);
 
-  // 🔎 Pre-chequeo: duplicado por nombre normalizado (coincide con idx uniq_clientes_nombre_ci)
+  // 🔎 Duplicado por nombre
   const { rows: dupNombre } = await pool.query(
     `SELECT id, nombre
-       FROM clientes
+       FROM almacenes
       WHERE lower(regexp_replace(nombre,'\\s+',' ','g'))
             = lower(regexp_replace($1,'\\s+',' ','g'))
       LIMIT 1`,
@@ -59,64 +65,59 @@ export async function crearCliente(d: ClienteCrearDTO) {
   );
   if (dupNombre.length > 0) {
     const err: any = new Error(
-      `Ya existe un cliente con el mismo nombre (ignora mayúsculas y espacios): "${dupNombre[0].nombre}".`
+      `Ya existe un almacén con el mismo nombre (ignora mayúsculas y espacios): "${dupNombre[0].nombre}".`
     );
     err.status = 409;
-    err.code = "CLIENTE_DUPLICADO_NOMBRE";
-    err.constraint = "uniq_clientes_nombre_ci";
+    err.code = "ALMACEN_DUPLICADO_NOMBRE";
+    err.constraint = "uniq_almacenes_nombre_ci";
     throw err;
   }
 
-  // 🔎 Pre-chequeo: duplicado por teléfono comparando solo dígitos (sin índice único en DDL)
+  // 🔎 Duplicado por teléfono
   if (telefonoDigits) {
     const { rows: dupTel } = await pool.query(
       `SELECT id, telefono
-         FROM clientes
+         FROM almacenes
         WHERE regexp_replace(COALESCE(telefono,''), '\\D', '', 'g') = $1
         LIMIT 1`,
       [telefonoDigits]
     );
     if (dupTel.length > 0) {
       const err: any = new Error(
-        `Ya existe un cliente con el mismo teléfono (se comparan solo dígitos; p. ej. 477-123-4567 ≡ (477)1234567): "${dupTel[0].telefono}".`
+        `Ya existe un almacén con el mismo teléfono (solo se comparan dígitos): "${dupTel[0].telefono}".`
       );
       err.status = 409;
-      err.code = "CLIENTE_DUPLICADO_TELEFONO";
-      // sin constraint porque no hay índice único para teléfono en el DDL
+      err.code = "ALMACEN_DUPLICADO_TELEFONO";
       throw err;
     }
   }
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO clientes (nombre, telefono, contacto)
+      `INSERT INTO almacenes (nombre, telefono, contacto)
        VALUES ($1,$2,$3)
        RETURNING id, nombre, telefono, contacto, creado_en`,
       [nombreNorm, telefonoOrig, contacto]
     );
     return rows[0];
   } catch (e: any) {
-    // Violación de unicidad por nombre (del índice uniq_clientes_nombre_ci)
     if (e?.code === "23505") {
       const c = String(e?.constraint || "");
-      if (c === "uniq_clientes_nombre_ci") {
-        const err: any = new Error(
-          "Nombre de cliente ya registrado (ignora mayúsculas y espacios)."
-        );
+      if (c === "uniq_almacenes_nombre_ci") {
+        const err: any = new Error("Nombre de almacén ya registrado (ignora mayúsculas y espacios).");
         err.status = 409;
-        err.code = "CLIENTE_DUPLICADO_NOMBRE";
+        err.code = "ALMACEN_DUPLICADO_NOMBRE";
         err.constraint = c;
         throw err;
       }
-      const err: any = new Error("Conflicto de unicidad en clientes.");
+      const err: any = new Error("Conflicto de unicidad en almacenes.");
       err.status = 409;
       err.code = "DB_CONSTRAINT";
       err.constraint = c;
       throw err;
     }
 
-    // Otros errores de base de datos
-    const err: any = new Error("Error de base de datos al crear cliente.");
+    const err: any = new Error("Error de base de datos al crear almacén.");
     err.status = 500;
     err.code = "DB_ERROR";
     err.detail = e?.message ?? e;
@@ -127,33 +128,38 @@ export async function crearCliente(d: ClienteCrearDTO) {
 /* ===========================================================
    Existencia por id
    =========================================================== */
-export async function existeCliente(id: number) {
+export async function existeAlmacen(id: number) {
   const { rows } = await pool.query(
-    `SELECT 1 FROM clientes WHERE id = $1`,
+    `SELECT 1 FROM almacenes WHERE id = $1`,
     [id]
   );
   return !!rows[0];
 }
 
-// src/models/cliente.model.ts (añadir debajo de tus exports)
-export async function obtenerCliente(id: number) {
+/* ===========================================================
+   Obtener almacén por id
+   =========================================================== */
+export async function obtenerAlmacen(id: number) {
   const { rows } = await pool.query(
     `SELECT id, nombre, telefono, contacto, creado_en
-       FROM clientes
+       FROM almacenes
       WHERE id = $1`,
     [id]
   );
   return rows[0] ?? null;
 }
 
-export async function actualizarCliente(d: { id: number; nombre: string; telefono?: string; contacto?: string }) {
+/* ===========================================================
+   Actualizar almacén
+   =========================================================== */
+export async function actualizarAlmacen(d: { id: number; nombre: string; telefono?: string; contacto?: string }) {
   const nombreNorm = normNombre(d.nombre);
   const telefonoOrig = safeTextOrNull(d.telefono ?? undefined);
   const contacto = safeTextOrNull(d.contacto ?? undefined);
 
-  // Evita colisiones de nombre con otros registros (igual que en crear)
+  // Duplicado por nombre
   const { rows: dupNombre } = await pool.query(
-    `SELECT id FROM clientes
+    `SELECT id FROM almacenes
       WHERE lower(regexp_replace(nombre,'\\s+',' ','g'))
             = lower(regexp_replace($1,'\\s+',' ','g'))
         AND id <> $2
@@ -161,34 +167,37 @@ export async function actualizarCliente(d: { id: number; nombre: string; telefon
     [nombreNorm, d.id]
   );
   if (dupNombre.length > 0) {
-    const err: any = new Error("Nombre de cliente ya registrado (ignora mayúsculas y espacios).");
+    const err: any = new Error("Nombre de almacén ya registrado (ignora mayúsculas y espacios).");
     err.status = 409;
-    err.code = "CLIENTE_DUPLICADO_NOMBRE";
+    err.code = "ALMACEN_DUPLICADO_NOMBRE";
     throw err;
   }
 
   const { rows } = await pool.query(
-    `UPDATE clientes
+    `UPDATE almacenes
         SET nombre=$1, telefono=$2, contacto=$3
       WHERE id=$4
       RETURNING id, nombre, telefono, contacto, creado_en`,
     [nombreNorm, telefonoOrig, contacto, d.id]
   );
   if (!rows[0]) {
-    const err: any = new Error("Cliente no encontrado");
+    const err: any = new Error("Almacén no encontrado");
     err.status = 404;
     throw err;
   }
   return rows[0];
 }
 
-export async function eliminarCliente(id: number) {
+/* ===========================================================
+   Eliminar almacén
+   =========================================================== */
+export async function eliminarAlmacen(id: number) {
   const { rows } = await pool.query(
-    `DELETE FROM clientes WHERE id=$1 RETURNING id`,
+    `DELETE FROM almacenes WHERE id=$1 RETURNING id`,
     [id]
   );
   if (!rows[0]) {
-    const err: any = new Error("Cliente no encontrado");
+    const err: any = new Error("Almacén no encontrado");
     err.status = 404;
     throw err;
   }

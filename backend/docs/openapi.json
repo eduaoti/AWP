@@ -12,7 +12,7 @@
     { "name": "Productos", "description": "Administración de productos" },
     { "name": "Movimientos", "description": "Entradas y salidas (JSON-only, endpoint único)" },
     { "name": "Proveedores", "description": "Directorio de proveedores" },
-    { "name": "Clientes", "description": "Directorio de clientes" },
+    { "name": "Almacenes", "description": "Gestión de almacenes (CRUD completo)" },
     { "name": "Estadísticas", "description": "Reportes (JSON-only)" }
   ],
   "paths": {
@@ -227,57 +227,56 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_LogoutAll" } }
       }
     },
-
-  "/usuarios": {
-  "post": {
-    "operationId": "usuariosCrear",
-    "tags": ["Usuarios"],
-    "summary": "Crear usuario",
-    "requestBody": {
-      "required": true,
-      "content": {
-        "application/json": {
-          "schema": {
-            "type": "object",
-            "required": ["nombre", "email", "password", "rol"],
-            "properties": {
-              "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
-              "email": { "type": "string", "format": "email" },
-              "password": { "type": "string", "minLength": 8 },
-              "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
-            },
-            "additionalProperties": false
+    "/usuarios": {
+      "post": {
+        "operationId": "usuariosCrear",
+        "tags": ["Usuarios"],
+        "summary": "Crear usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre", "email", "password", "rol"],
+                "properties": {
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8 },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
+              }
+            }
           }
-        }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      },
+      "put": {
+        "operationId": "usuariosActualizar",
+        "tags": ["Usuarios"],
+        "summary": "Actualizar usuario",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "nombre", "email", "rol"],
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1 },
+                  "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
+                  "email": { "type": "string", "format": "email" },
+                  "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-    "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-  },
-  "put": {
-    "operationId": "usuariosActualizar",
-    "tags": ["Usuarios"],
-    "summary": "Actualizar usuario",
-    "requestBody": {
-      "required": true,
-      "content": {
-        "application/json": {
-          "schema": {
-            "type": "object",
-            "required": ["id", "nombre", "email", "rol"],
-            "properties": {
-              "id": { "type": "integer", "minimum": 1 },
-              "nombre": { "type": "string", "minLength": 1, "maxLength": 120 },
-              "email": { "type": "string", "format": "email" },
-              "rol": { "type": "string", "enum": ["admin", "editor", "lector", "jefe_inventario"] }
-            },
-            "additionalProperties": false
-          }
-        }
-      }
-    },
-    "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
-  }
-},
     "/usuarios/eliminar": {
       "post": {
         "operationId": "usuariosEliminar",
@@ -300,32 +299,32 @@
       }
     },
     "/usuarios/listar": {
-  "post": {
-    "operationId": "usuariosListarPostJson",
-    "tags": ["Usuarios"],
-    "summary": "Listar usuarios (JSON-only, paginado/orden/búsqueda)",
-    "requestBody": {
-      "required": false,
-      "content": {
-        "application/json": {
-          "schema": {
-            "type": "object",
-            "properties": {
-              "page": { "type": "integer", "minimum": 1, "default": 1 },
-              "pageSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
-              "sortBy": { "type": "string", "enum": ["id","nombre","email","rol","creado_en"], "default": "id" },
-              "sortDir": { "type": "string", "enum": ["asc","desc"], "default": "desc" },
-              "search": { "type": "string", "maxLength": 80 }
-            },
-            "additionalProperties": false
-          },
-          "example": { "page": 1, "pageSize": 20, "sortBy": "id", "sortDir": "desc", "search": "" }
-        }
+      "post": {
+        "operationId": "usuariosListarPostJson",
+        "tags": ["Usuarios"],
+        "summary": "Listar usuarios (JSON-only, paginado/orden/búsqueda)",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "page": { "type": "integer", "minimum": 1, "default": 1 },
+                  "pageSize": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+                  "sortBy": { "type": "string", "enum": ["id", "nombre", "email", "rol", "creado_en"], "default": "id" },
+                  "sortDir": { "type": "string", "enum": ["asc", "desc"], "default": "desc" },
+                  "search": { "type": "string", "maxLength": 80 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "page": 1, "pageSize": 20, "sortBy": "id", "sortDir": "desc", "search": "" }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
       }
     },
-    "responses": { "200": { "$ref": "#/components/responses/Resp200_UsuariosList" } }
-  }
-},
     "/productos": {
       "post": {
         "operationId": "productosCrear",
@@ -558,13 +557,12 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/movimientos": {
       "post": {
         "operationId": "movimientosUnificado",
         "tags": ["Movimientos"],
         "summary": "Registrar movimiento (UNIFICADO, por clave, con flag 'entrada')",
-        "description": "Usa 'entrada' para indicar el tipo: true/1 = entrada; false/0 = salida. Para 'salida' debes incluir cliente_id; para 'entrada' puedes incluir proveedor_id.",
+        "description": "Usa 'entrada' para indicar el tipo: true/1 = entrada; false/0 = salida. Para 'salida' debes incluir almacen_id; para 'entrada' puedes incluir proveedor_id.",
         "requestBody": {
           "required": true,
           "content": {
@@ -586,7 +584,7 @@
                     "entrada": 0,
                     "producto_clave": "SKU-001",
                     "cantidad": 2,
-                    "cliente_id": 10,
+                    "almacen_id": 10,
                     "documento": "FAC-555",
                     "responsable": "Ana"
                   }
@@ -598,7 +596,6 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
     "/proveedores": {
       "get": {
         "operationId": "proveedoresListar",
@@ -661,7 +658,156 @@
         "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
       }
     },
-
+    "/almacenes": {
+      "get": {
+        "operationId": "almacenesListar",
+        "tags": ["Almacenes"],
+        "summary": "Listar almacenes (GET, paginado por query)",
+        "description": "Devuelve todos los almacenes en JSON, ordenados por nombre ascendente. Paginación con parámetros de query. Incluye headers X-Total-Count, X-Limit, X-Offset y Link (RFC5988).",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Número máximo de registros (máx. 500)",
+            "required": false,
+            "schema": { "type": "integer", "default": 100, "minimum": 1, "maximum": 500 }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Registros a omitir desde el inicio (para paginación)",
+            "required": false,
+            "schema": { "type": "integer", "default": 0, "minimum": 0 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Resp200_AlmacenesList",
+            "headers": {
+              "X-Total-Count": { "schema": { "type": "integer" }, "description": "Total de registros disponibles" },
+              "X-Limit": { "schema": { "type": "integer" }, "description": "Límite aplicado" },
+              "X-Offset": { "schema": { "type": "integer" }, "description": "Offset aplicado" },
+              "Link": { "schema": { "type": "string" }, "description": "Enlaces prev/next (RFC5988)" }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "almacenesCrear",
+        "tags": ["Almacenes"],
+        "summary": "Crear almacén",
+        "description": "Crea un nuevo almacén. Valida que nombre y teléfono no estén duplicados (normalizados).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["nombre"],
+                "properties": {
+                  "nombre": { "type": "string", "minLength": 2, "maxLength": 160 },
+                  "telefono": {
+                    "type": "string",
+                    "pattern": "^[0-9]{10,11}$",
+                    "description": "Teléfono opcional (solo dígitos, 10–11)"
+                  },
+                  "contacto": { "type": "string", "maxLength": 120 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "nombre": "Almacén Central", "telefono": "4771234567", "contacto": "Juan Pérez" }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      },
+      "put": {
+        "operationId": "almacenesActualizar",
+        "tags": ["Almacenes"],
+        "summary": "Actualizar almacén existente",
+        "description": "Actualiza un almacén. Valida duplicados de nombre y teléfono.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "nombre"],
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1 },
+                  "nombre": { "type": "string", "minLength": 2, "maxLength": 160 },
+                  "telefono": {
+                    "type": "string",
+                    "pattern": "^[0-9]{10,11}$",
+                    "description": "Teléfono opcional (solo dígitos, 10–11)"
+                  },
+                  "contacto": { "type": "string", "maxLength": 120 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "id": 1, "nombre": "Almacén Norte", "telefono": "4777654321", "contacto": "Ana López" }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      },
+      "delete": {
+        "operationId": "almacenesEliminar",
+        "tags": ["Almacenes"],
+        "summary": "Eliminar almacén (JSON-only)",
+        "description": "Elimina un almacén enviando su ID en el cuerpo JSON.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "properties": { "id": { "type": "integer", "minimum": 1 } },
+                "additionalProperties": false
+              },
+              "example": { "id": 3 }
+            }
+          }
+        },
+        "responses": { "200": { "$ref": "#/components/responses/Resp200_Min" } }
+      }
+    },
+    "/almacenes/listar": {
+      "post": {
+        "operationId": "almacenesListarPostJson",
+        "tags": ["Almacenes"],
+        "summary": "Listar almacenes (POST JSON, paginado por page/per_page)",
+        "description": "Alternativa a GET para clientes que prefieren mandar la paginación en el body. Orden por nombre ascendente.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "page": { "type": "integer", "minimum": 1, "default": 1 },
+                  "per_page": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+                },
+                "additionalProperties": false
+              },
+              "example": { "page": 1, "per_page": 20 }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/Resp200_AlmacenesList",
+            "headers": {
+              "X-Total-Count": { "schema": { "type": "integer" }, "description": "Total de registros" },
+              "X-Limit": { "schema": { "type": "integer" }, "description": "Equivalente a per_page" },
+              "X-Offset": { "schema": { "type": "integer" }, "description": "Equivalente a (page-1)*per_page" },
+              "Link": { "schema": { "type": "string" }, "description": "Enlaces prev/next (RFC5988)" }
+            }
+          }
+        }
+      }
+    },
     "/estadisticas/ventas-producto": {
       "post": {
         "operationId": "estadisticasVentasProducto",
@@ -813,17 +959,17 @@
                 "oneOf": [
                   { "type": "boolean" },
                   { "type": "integer", "enum": [0, 1] },
-                  { "type": "string", "enum": ["0","1","true","false","si","sí","yes","no","on","off"] }
+                  { "type": "string", "enum": ["0", "1", "true", "false", "si", "sí", "yes", "no", "on", "off"] }
                 ]
               },
               "proveedor_id": { "type": "integer", "minimum": 1, "nullable": true },
-              "cliente_id": { "type": "integer", "minimum": 1, "nullable": true }
+              "almacen_id": { "type": "integer", "minimum": 1, "nullable": true }
             },
             "required": ["entrada"],
             "additionalProperties": false
           }
         ],
-        "description": "Reglas: si entrada=true/1 puedes incluir proveedor_id. Si entrada=false/0 debes incluir cliente_id."
+        "description": "Reglas: si entrada=true/1 puedes incluir proveedor_id. Si entrada=false/0 debes incluir almacen_id."
       },
       "PaginacionMeta": {
         "type": "object",
@@ -1022,6 +1168,87 @@
                 }
               },
               "additionalProperties": false
+            }
+          }
+        }
+      },
+      "Resp200_AlmacenesList": {
+        "description": "Listar almacenes (trae data)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": ["codigo", "mensaje", "data"],
+              "properties": {
+                "codigo": { "type": "integer" },
+                "mensaje": { "type": "string" },
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "integer" },
+                          "nombre": { "type": "string" },
+                          "telefono": { "type": "string" },
+                          "contacto": { "type": "string" },
+                          "creado_en": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "total": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "offset": { "type": "integer" },
+                        "returned": { "type": "integer" },
+                        "hasNext": { "type": "boolean" },
+                        "hasPrev": { "type": "boolean" },
+                        "nextOffset": { "type": "integer", "nullable": true },
+                        "prevOffset": { "type": "integer", "nullable": true },
+                        "page": { "type": "integer" },
+                        "per_page": { "type": "integer" },
+                        "total_items": { "type": "integer" },
+                        "total_pages": { "type": "integer" }
+                      }
+                    }
+                  },
+                  "required": ["items", "meta"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "example": {
+              "codigo": 0,
+              "mensaje": "OK",
+              "data": {
+                "items": [
+                  {
+                    "id": 1,
+                    "nombre": "Almacén Central",
+                    "telefono": "4771234567",
+                    "contacto": "Juan Pérez",
+                    "creado_en": "2025-02-01T10:00:00Z"
+                  }
+                ],
+                "meta": {
+                  "total": 248,
+                  "limit": 20,
+                  "offset": 0,
+                  "returned": 1,
+                  "hasNext": true,
+                  "hasPrev": false,
+                  "nextOffset": 20,
+                  "prevOffset": null,
+                  "page": 1,
+                  "per_page": 20,
+                  "total_items": 248,
+                  "total_pages": 13
+                }
+              }
             }
           }
         }
