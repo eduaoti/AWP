@@ -2,7 +2,11 @@
 import { Router } from "express";
 import { requireJson } from "../middlewares/security/require-json";
 import { validateBodySimple, validateParams } from "../middlewares/validation/validate";
-import { CreateProductoSchema, UpdateProductoSchema } from "../schemas/domain/producto.schemas";
+import {
+  CreateProductoSchema,
+  UpdateProductoSchema,
+  UpdateStockMinimoSchema,
+} from "../schemas/domain/producto.schemas";
 import {
   crearProducto,
   actualizarPorCodigo,
@@ -16,37 +20,64 @@ import { AppCode } from "../status/codes";
 import { sendCode } from "../status/respond";
 import { z } from "zod";
 
-/* Schema para params de código */
+/* ===========================================================
+   🧩 Validación para código (parametro en URL)
+   =========================================================== */
 const CodigoParamSchema = z.object({
   params: z.object({
-    codigo: z.string().min(1).max(10),
+    codigo: z
+      .string()
+      .min(2, "codigo → Debe tener al menos 2 caracteres")
+      .max(20, "codigo → No debe exceder 20 caracteres")
+      .regex(/^[A-Za-z0-9_-]{2,20}$/, {
+        message: "codigo → Solo puede contener letras, números, guiones (-) o guiones bajos (_)",
+      }),
   }),
 });
 
 const r = Router();
 
 /* ===========================================================
-   RUTAS CRUD
+   🧱 CRUD PRINCIPALES
    =========================================================== */
 
+/** Crear producto */
 r.post("/", requireJson, validateBodySimple(CreateProductoSchema), crearProducto);
-r.put("/codigo/:codigo", requireJson, validateParams(CodigoParamSchema), validateBodySimple(UpdateProductoSchema), actualizarPorCodigo);
+
+/** Actualizar producto por código */
+r.put(
+  "/codigo/:codigo",
+  requireJson,
+  validateParams(CodigoParamSchema),
+  validateBodySimple(UpdateProductoSchema),
+  actualizarPorCodigo
+);
+
+/** Eliminar producto por código */
 r.delete("/codigo/:codigo", validateParams(CodigoParamSchema), eliminarPorCodigo);
 
 /* ===========================================================
-   LISTAR
+   📋 LISTAR PRODUCTOS
    =========================================================== */
+
+/** Listar productos (paginado o completo) */
 r.post("/listar", requireJson, listar);
 
 /* ===========================================================
-   UNIFICADAS
+   🔁 UNIFICADAS (por clave/nombre en body)
    =========================================================== */
-r.put("/actualizar", requireJson, actualizar);
-r.put("/stock-minimo", requireJson, actualizarStockMinimo);
+
+/** Actualizar producto (clave o nombre en body) */
+r.put("/actualizar", requireJson, validateBodySimple(UpdateProductoSchema), actualizar);
+
+/** Actualizar solo el stock mínimo */
+r.put("/stock-minimo", requireJson, validateBodySimple(UpdateStockMinimoSchema), actualizarStockMinimo);
+
+/** Eliminar producto (por body: clave o nombre) */
 r.delete("/eliminar", requireJson, eliminar);
 
 /* ===========================================================
-   DEPRECATED
+   ⚠️ DEPRECATED ENDPOINT
    =========================================================== */
 r.get("/", (req, res) => {
   return sendCode(req, res, AppCode.NOT_FOUND, undefined, {

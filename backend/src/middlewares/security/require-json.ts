@@ -5,7 +5,8 @@ import { sendCode } from "../../status/respond";
 /* ===========================================================
    Métodos que pueden tener cuerpo (body)
    =========================================================== */
-const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+// ❌ Se eliminó "DELETE" — ya que normalmente no lleva body
+const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH"]);
 
 /* ===========================================================
    Rutas que quedan exentas de validación estricta
