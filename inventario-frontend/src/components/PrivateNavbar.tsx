@@ -1,6 +1,7 @@
+// src/components/PrivateNavbar.tsx
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { logout } from "../api/auth";
+import { logout as apiLogout } from "../api/auth";
 
 export default function PrivateNavbar() {
   const nav = useNavigate();
@@ -8,17 +9,14 @@ export default function PrivateNavbar() {
 
   async function handleLogout() {
     try {
-      await logout();
+      // Intento de logout en backend (puede fallar con 401 si token ya expiró)
+      await apiLogout();
     } catch (error) {
       console.warn("⚠️ Error cerrando sesión en backend:", error);
     } finally {
-      await logoutCtx();
-      localStorage.removeItem("usuario");
-      localStorage.removeItem("token");
-
-      // ✅ Guardar mensaje también en sessionStorage
+      // SIEMPRE cerrar sesión local y redirigir
+      await logoutCtx(); // limpia token, usuario, modal, timers
       sessionStorage.setItem("logoutMsg", "Se cerró sesión correctamente ✅");
-
       nav("/login", { replace: true });
     }
   }

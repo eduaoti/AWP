@@ -5,6 +5,11 @@ export function loginPassword(email: string, password: string) {
   return api.post("/auth/login", { email, password });
 }
 
+// 🔄 renovar token
+export function refreshToken() {
+  return api.post("/auth/refresh", {});
+}
+
 // --- 2️⃣ VERIFICAR OTP (flujo online) ---
 export function verificarOtpLogin(preAuth: string, code: string, deviceId?: string) {
   return api.post("/auth/login/otp", { preAuth, code, deviceId });

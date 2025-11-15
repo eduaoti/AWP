@@ -37,7 +37,7 @@ const JWT_PRE = process.env.JWT_PREAUTH_SECRET as string;
 const JWT_OFFLINE = process.env.JWT_OFFLINE_SECRET || "dev-offline-secret";
 
 // ⬇️ TTL de sesión en minutos (default 5). Usamos este valor para JWT final y DB.
-const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MIN || 30);
+const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MIN || 1);
 const ACCESS_TTL_MS = SESSION_TTL_MIN * 60 * 1000;
 
 // ⬇️ Evitar falso positivo Sonar S2068 por literal "password"
