@@ -1,56 +1,60 @@
-// src/services/mail.ts
-import nodemailer, { Transporter } from "nodemailer";
+// src/services/system/mail.ts
+import { Resend } from "resend";
 
-const host = process.env.SMTP_HOST;
-const port = Number(process.env.SMTP_PORT || 587);
-const secure = String(process.env.SMTP_SECURE || "false") === "true"; // true => 465
-const user = process.env.SMTP_USER;
-const pass = process.env.SMTP_PASS;
-const from = process.env.MAIL_FROM || '"AWP" <no-reply@awp.local>';
+const apiKey = process.env.RESEND_API_KEY;
+const from = process.env.MAIL_FROM || "AWP <onboarding@resend.dev>";
 
-if (!host || !user || !pass) {
-  console.warn("[MAIL] Faltan SMTP_HOST/SMTP_USER/SMTP_PASS. El envío fallará.");
+if (!apiKey) {
+  console.warn("[MAIL] Falta RESEND_API_KEY — no se podrán enviar correos.");
 }
 
-export const transport: Transporter = nodemailer.createTransport({
-  host,
-  port,
-  secure,
-  auth: user && pass ? { user, pass } : undefined,
-  // Para algunos entornos con TLS raro/DNS:
-  tls: {
-    // Para 465 normalmente no se necesita, pero ayuda en entornos locales
-    servername: host,
-  },
-  connectionTimeout: 7000,
-  greetingTimeout: 7000,
-});
+const resend = new Resend(apiKey);
 
-/** Verifica conexión SMTP al iniciar el server */
+/**
+ * Opcional, por compatibilidad con tu código viejo.
+ * Antes verificabas el transporte SMTP; ahora solo logueamos.
+ */
 export async function verifyTransport() {
-  try {
-    await transport.verify();
-    console.log(`[MAIL] Transport OK: ${host}:${port} secure=${secure}`);
-  } catch (err: any) {
-    console.error("[MAIL] verify() falló:", err?.code || err?.name, err?.message || err);
+  if (!apiKey) {
+    console.warn("[MAIL] RESEND_API_KEY no configurada; los correos fallarán.");
+    return;
   }
+    console.log("[MAIL] Usando Resend API para envío de correos.");
 }
 
-/** Envía un correo o lanza error (lo captura el caller para encolar) */
+/**
+ * Función central de envío de correos.
+ * TODAS las demás capas (OTP, recuperación, low-stock, etc.)
+ * ya llaman a sendMail o sendNowOrEnqueue, así que no hay
+ * que tocar nada más.
+ */
 export async function sendMail(to: string, subject: string, html: string) {
   const toNorm = String(to).trim();
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[MAIL] intent to=${toNorm} | subject=${subject}`);
+
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY no configurada");
   }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`[MAIL] Sending via Resend → to=${toNorm} | subject="${subject}"`);
+  }
+
   try {
-    const info = await transport.sendMail({ from, to: toNorm, subject, html });
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[MAIL] accepted=${JSON.stringify(info.accepted)} rejected=${JSON.stringify(info.rejected)} response=${info.response}`);
+    const result = await resend.emails.send({
+      from,
+      to: toNorm,
+      subject,
+      html,
+    });
+
+    if (result.error) {
+      console.error("[MAIL] Resend error:", result.error);
+      throw new Error(result.error.message);
     }
-    return info;
+
+    return result;
   } catch (err: any) {
-    // 👇 Log específico para saber por qué se va a DIFERIDO
-    console.error("[MAIL] sendMail() ERROR:", err?.code || err?.name, err?.message || err);
+    console.error("[MAIL] sendMail() ERROR:", err?.message || err);
     throw err;
   }
 }
