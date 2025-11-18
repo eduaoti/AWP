@@ -33,10 +33,10 @@ export default function Inicio() {
             Ir a Productos
           </button>
           <button
-            onClick={() => (window.location.href = "/estadisticas")}
+            onClick={() => (window.location.href = "/bitacora")}
             className="bg-slate-200 text-slate-700 px-6 py-2 rounded-lg shadow hover:bg-slate-300 transition"
           >
-            Ver Estadísticas
+            Ver Bitacoras
           </button>
         </div>
       </main>

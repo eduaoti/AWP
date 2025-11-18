@@ -37,7 +37,7 @@ const r = Router();
 
 // Debe ser el mismo secreto que usas en el middleware requireAuth
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
-const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MIN || 1);
+const SESSION_TTL_MIN = Number(process.env.SESSION_TTL_MIN || 30);
 
 /* ===========================================================
    LOGIN

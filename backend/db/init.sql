@@ -419,5 +419,282 @@ ALTER TABLE productos
 CREATE INDEX IF NOT EXISTS idx_productos_categoria_id ON productos (categoria_id);
 
 -- =========================================
+-- 10) BITÁCORA DE ACCESOS (BITACORA_ACCESOS)
+--     E12 - Administración de Bitácoras Automáticas
+-- =========================================
+CREATE TABLE IF NOT EXISTS bitacora_accesos (
+  id           BIGSERIAL PRIMARY KEY,
+  usuario_id   BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+  email        VARCHAR(180),
+  evento       VARCHAR(40) NOT NULL CHECK (
+                 evento IN (
+                   'login_exitoso',
+                   'login_fallido',
+                   'logout',
+                   'sesion_expirada',
+                   'otp_habilitado',
+                   'otp_deshabilitado'
+                 )
+               ),
+  fecha        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ip           TEXT,
+  user_agent   TEXT,
+  detalle      TEXT,
+  metadata     JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_accesos_usuario_fecha
+  ON bitacora_accesos (usuario_id, fecha DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_accesos_evento_fecha
+  ON bitacora_accesos (evento, fecha DESC);
+
+-- =========================================
+-- 11) BITÁCORA DE MOVIMIENTOS (BITACORA_MOVIMIENTOS)
+--     Registro automático de entradas y salidas
+-- =========================================
+
+-- Vincular movimientos con usuario responsable (opcional pero recomendado)
+ALTER TABLE movimientos
+  ADD COLUMN IF NOT EXISTS usuario_id BIGINT REFERENCES usuarios(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS bitacora_movimientos (
+  id             BIGSERIAL PRIMARY KEY,
+  movimiento_id  BIGINT NOT NULL REFERENCES movimientos(id) ON DELETE CASCADE,
+  fecha_log      TIMESTAMPTZ NOT NULL DEFAULT NOW(),   -- Cuándo se registró en bitácora
+  fecha_mov      TIMESTAMPTZ NOT NULL,                 -- Fecha original del movimiento
+  usuario_id     BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+  tipo           VARCHAR(10) NOT NULL CHECK (tipo IN ('entrada','salida')),
+  producto_id    BIGINT NOT NULL REFERENCES productos(id) ON DELETE RESTRICT,
+  cantidad       NUMERIC(14,2) NOT NULL,
+  documento      VARCHAR(120),
+  responsable    VARCHAR(120),
+  proveedor_id   BIGINT REFERENCES proveedores(id) ON DELETE SET NULL,
+  almacen_id     BIGINT REFERENCES almacenes(id) ON DELETE SET NULL,
+  snapshot       JSONB                                 -- Copia del registro original
+);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_mov_prod_fecha
+  ON bitacora_movimientos (producto_id, fecha_mov DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_mov_usuario_fecha
+  ON bitacora_movimientos (usuario_id, fecha_mov DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_mov_tipo_fecha
+  ON bitacora_movimientos (tipo, fecha_mov DESC);
+
+-- Función trigger para registrar automáticamente los movimientos en la bitácora
+CREATE OR REPLACE FUNCTION bitacora_movimientos_log()
+RETURNS TRIGGER AS $f$
+BEGIN
+  INSERT INTO bitacora_movimientos (
+    movimiento_id,
+    fecha_log,
+    fecha_mov,
+    usuario_id,
+    tipo,
+    producto_id,
+    cantidad,
+    documento,
+    responsable,
+    proveedor_id,
+    almacen_id,
+    snapshot
+  )
+  VALUES (
+    NEW.id,
+    NOW(),
+    NEW.fecha,
+    NEW.usuario_id,
+    NEW.tipo,
+    NEW.producto_id,
+    NEW.cantidad,
+    NEW.documento,
+    NEW.responsable,
+    NEW.proveedor_id,
+    NEW.almacen_id,
+    to_jsonb(NEW)
+  );
+
+  RETURN NEW;
+END;
+$f$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_movimientos_bitacora') THEN
+    CREATE TRIGGER trg_movimientos_bitacora
+    AFTER INSERT ON movimientos
+    FOR EACH ROW
+    EXECUTE PROCEDURE bitacora_movimientos_log();
+  END IF;
+END$$;
+
+-- =========================================
+-- 12) BITÁCORA DEL SISTEMA (BITACORA_SISTEMA)
+--      Registro automático de CRUD de módulos
+-- =========================================
+CREATE TABLE IF NOT EXISTS bitacora_sistema (
+  id              BIGSERIAL PRIMARY KEY,
+  fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  usuario_id      BIGINT REFERENCES usuarios(id) ON DELETE SET NULL,
+  tabla           TEXT NOT NULL,
+  registro_id     BIGINT,
+  operacion       VARCHAR(10) NOT NULL CHECK (operacion IN ('CREATE','UPDATE','DELETE')),
+  ip              TEXT,
+  user_agent      TEXT,
+  valores_antes   JSONB,
+  valores_despues JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_sistema_tabla_registro
+  ON bitacora_sistema (tabla, registro_id);
+
+CREATE INDEX IF NOT EXISTS idx_bitacora_sistema_usuario_fecha
+  ON bitacora_sistema (usuario_id, fecha DESC);
+
+-- Función genérica para registrar operaciones CRUD en cualquier tabla
+CREATE OR REPLACE FUNCTION bitacora_sistema_log()
+RETURNS TRIGGER AS $f$
+DECLARE
+  v_usuario_id BIGINT;
+  v_ip         TEXT;
+  v_ua         TEXT;
+  v_oper       VARCHAR(10);
+BEGIN
+  -- Intenta obtener el usuario e info de contexto desde GUC opcionales:
+  --   SET LOCAL app.current_user_id = '123';
+  --   SET LOCAL app.current_ip = '1.2.3.4';
+  --   SET LOCAL app.current_user_agent = '...';
+  BEGIN
+    v_usuario_id := NULLIF(current_setting('app.current_user_id', true), '')::BIGINT;
+  EXCEPTION WHEN others THEN
+    v_usuario_id := NULL;
+  END;
+
+  BEGIN
+    v_ip := current_setting('app.current_ip', true);
+  EXCEPTION WHEN others THEN
+    v_ip := NULL;
+  END;
+
+  BEGIN
+    v_ua := current_setting('app.current_user_agent', true);
+  EXCEPTION WHEN others THEN
+    v_ua := NULL;
+  END;
+
+  IF (TG_OP = 'INSERT') THEN
+    v_oper := 'CREATE';
+    INSERT INTO bitacora_sistema (
+      fecha,
+      usuario_id,
+      tabla,
+      registro_id,
+      operacion,
+      ip,
+      user_agent,
+      valores_antes,
+      valores_despues
+    )
+    VALUES (
+      NOW(),
+      v_usuario_id,
+      TG_TABLE_NAME,
+      NEW.id,
+      v_oper,
+      v_ip,
+      v_ua,
+      NULL,
+      to_jsonb(NEW)
+    );
+    RETURN NEW;
+
+  ELSIF (TG_OP = 'UPDATE') THEN
+    v_oper := 'UPDATE';
+    INSERT INTO bitacora_sistema (
+      fecha,
+      usuario_id,
+      tabla,
+      registro_id,
+      operacion,
+      ip,
+      user_agent,
+      valores_antes,
+      valores_despues
+    )
+    VALUES (
+      NOW(),
+      v_usuario_id,
+      TG_TABLE_NAME,
+      NEW.id,
+      v_oper,
+      v_ip,
+      v_ua,
+      to_jsonb(OLD),
+      to_jsonb(NEW)
+    );
+    RETURN NEW;
+
+  ELSIF (TG_OP = 'DELETE') THEN
+    v_oper := 'DELETE';
+    INSERT INTO bitacora_sistema (
+      fecha,
+      usuario_id,
+      tabla,
+      registro_id,
+      operacion,
+      ip,
+      user_agent,
+      valores_antes,
+      valores_despues
+    )
+    VALUES (
+      NOW(),
+      v_usuario_id,
+      TG_TABLE_NAME,
+      OLD.id,
+      v_oper,
+      v_ip,
+      v_ua,
+      to_jsonb(OLD),
+      NULL
+    );
+    RETURN OLD;
+  END IF;
+
+  RETURN NULL;
+END;
+$f$ LANGUAGE plpgsql;
+
+-- Habilitar bitácora de sistema para algunos módulos clave
+DO $$
+BEGIN
+  -- Productos
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_productos_bitacora_sistema') THEN
+    CREATE TRIGGER trg_productos_bitacora_sistema
+    AFTER INSERT OR UPDATE OR DELETE ON productos
+    FOR EACH ROW
+    EXECUTE PROCEDURE bitacora_sistema_log();
+  END IF;
+
+  -- Almacenes
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_almacenes_bitacora_sistema') THEN
+    CREATE TRIGGER trg_almacenes_bitacora_sistema
+    AFTER INSERT OR UPDATE OR DELETE ON almacenes
+    FOR EACH ROW
+    EXECUTE PROCEDURE bitacora_sistema_log();
+  END IF;
+
+  -- Proveedores
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_proveedores_bitacora_sistema') THEN
+    CREATE TRIGGER trg_proveedores_bitacora_sistema
+    AFTER INSERT OR UPDATE OR DELETE ON proveedores
+    FOR EACH ROW
+    EXECUTE PROCEDURE bitacora_sistema_log();
+  END IF;
+END$$;
+
+-- =========================================
 -- FIN DEL SCRIPT
 -- =========================================
