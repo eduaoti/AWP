@@ -149,30 +149,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [token, setToken]);
 
   // ==========================
-  // INICIAR / REINICIAR CONTADOR DE INACTIVIDAD (no la lógica real)
-  // ==========================
-  const startInactivityTimer = useCallback(() => {
-    if (!token) return;
-
-    clearInactivityTimer();
-    // Si reiniciamos por actividad, ocultamos modal de inactividad (si vino por eso)
-    // OJO: si el modal vino por token, el ref se controla desde el programador de token.
-    if (!showExpireModalRef.current) {
-      setShowExpireModal(false);
-    }
-
-    setSecondsLeft(null); // la cuenta de inactividad solo se muestra al entrar al modal
-
-    inactivityTimerRef.current = window.setInterval(() => {
-      setSecondsLeft((s) => {
-        // Aquí s lo manejamos solo cuando el modal esté activo por inactividad.
-        // Para detectar inactividad, mejor controlamos internamente:
-        return s;
-      });
-    }, 1000);
-  }, [token, clearInactivityTimer]);
-
-  // ==========================
   // LÓGICA REAL DE INACTIVIDAD
   // ==========================
   const resetInactividad = useCallback(() => {

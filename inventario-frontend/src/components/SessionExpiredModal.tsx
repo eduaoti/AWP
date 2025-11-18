@@ -1,5 +1,4 @@
 // src/components/SessionExpiredModal.tsx
-import React from "react";
 import Button from "./Button";
 
 export default function SessionExpiredModal({
