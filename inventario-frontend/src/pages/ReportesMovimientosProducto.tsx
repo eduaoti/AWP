@@ -40,8 +40,10 @@ export default function ReportesMovimientosProducto() {
   const [sugerencias, setSugerencias] = useState<{ clave: string; nombre: string }[]>([]);
 
   // Datos movimientos
-  const [movimientos, setMovimientos] = useState<MovimientoProducto[]>([]);
-  const [metaMov, setMetaMov] = useState<MovimientosProductoMeta | null>(null);
+const [movimientos, setMovimientos] = useState<MovimientoProducto[]>([]);
+// No usamos metaMov, solo el setter → ignoramos el primer valor
+const [, setMetaMov] = useState<MovimientosProductoMeta | null>(null);
+
 
   // Datos ventas
   const [ventas, setVentas] = useState<VentaProducto[]>([]);

@@ -1,3 +1,4 @@
+// src/pages/Usuarios.tsx
 import React, { useEffect, useState } from "react";
 import {
   listarUsuarios,
@@ -23,7 +24,8 @@ export default function Usuarios() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const { user } = useAuth(); // 👤 Usuario actual desde contexto (ya no se pasa como prop)
+  // 👤 Usuario actual desde contexto
+  const { user } = useAuth();
 
   async function cargar() {
     try {
@@ -84,14 +86,23 @@ export default function Usuarios() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* 🔹 Navbar protegida (ya no recibe props) */}
+      {/* 🔹 Navbar protegida */}
       <PrivateNavbar />
 
       {/* 🔹 Contenido principal */}
       <main className="flex-1 p-6">
-        <h1 className="text-2xl font-bold mb-4 text-slate-800">
+        <h1 className="text-2xl font-bold mb-2 text-slate-800">
           Gestión de Usuarios
         </h1>
+
+        {/* 👤 Info del usuario actual */}
+        {user && (
+          <p className="text-sm text-slate-600 mb-4">
+            Sesión iniciada como{" "}
+            <span className="font-semibold">{user.nombre}</span>{" "}
+            (<span className="italic">{user.rol}</span>)
+          </p>
+        )}
 
         {/* Mensajes */}
         {msg && (

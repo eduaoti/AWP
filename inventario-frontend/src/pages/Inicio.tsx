@@ -1,4 +1,3 @@
-import React from "react";
 import PrivateNavbar from "../components/PrivateNavbar";
 import { useAuth } from "../context/AuthContext";
 
