@@ -42,7 +42,7 @@ export default function OfflinePin() {
       const token = data?.data?.token;
       if (!token) throw new Error("Sin token");
       setToken(token);
-      nav("/");
+      nav("/inicio");
     } catch (r: any) {
       setErr(r?.data?.mensaje || "PIN inválido o expirado");
     } finally {

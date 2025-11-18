@@ -6,7 +6,6 @@ import {
   nonNegativeInt,
   alphaUnidad,
   alphaCategoria,
-  claveStrict,
   hasHtmlLike,
   hasRiskyJs,
 } from "../shared/_helpers";
@@ -46,13 +45,22 @@ const Descripcion = z
   )
   .optional();
 
-/** 👉 'clave' estricta: solo [A-Za-z0-9-], sin “--”, sin iniciar/terminar con -, máx 10 */
-const Clave = claveStrict("clave", 10);
+/** 👉 'clave' estricta: debe iniciar con letra, solo [A-Za-z0-9_-], sin espacios, 2–20 caracteres */
+const Clave = z
+  .string()
+  .min(2, { message: "clave → Debe tener al menos 2 caracteres" })
+  .max(20, { message: "clave → No debe exceder 20 caracteres" })
+  .regex(/^[A-Za-z][A-Za-z0-9_-]{1,19}$/, {
+    message:
+      "clave → Debe iniciar con letra y solo puede contener letras, números, guiones (-) o guiones bajos (_)",
+  })
+  .refine((v) => v.trim().length > 0, {
+    message: "La clave es obligatoria",
+  });
 
 /* ===========================================================
    ✨ Crear producto
    =========================================================== */
-
 export const CreateProductoSchema = z
   .object({
     clave: Clave,
@@ -92,7 +100,6 @@ export const CreateProductoSchema = z
 /* ===========================================================
    ✨ Actualización genérica (por clave en path param)
    =========================================================== */
-
 export const UpdateProductoSchema = z
   .object({
     nombre: Nombre.optional(),
@@ -124,7 +131,6 @@ export const UpdateProductoSchema = z
 /* ===========================================================
    ✨ Solo actualizar stock mínimo
    =========================================================== */
-
 export const UpdateStockMinimoSchema = z
   .object({
     stock_minimo: nonNegativeInt("stock_minimo"),
@@ -134,7 +140,6 @@ export const UpdateStockMinimoSchema = z
 /* ===========================================================
    ✅ Rutas JSON-only POR CLAVE
    =========================================================== */
-
 export const IdPorClaveSchema = z
   .object({
     clave: Clave,
@@ -185,7 +190,6 @@ export const UpdateStockMinimoPorClaveSchema = z
 /* ===========================================================
    ✅ Rutas JSON-only POR NOMBRE
    =========================================================== */
-
 export const IdPorNombreSchema = z
   .object({
     nombre: Nombre,
@@ -236,7 +240,6 @@ export const UpdateStockMinimoPorNombreSchema = z
 /* ===========================================================
    ✅ Listado paginado (POST /productos/listar)
    =========================================================== */
-
 export const ProductoListInput = z
   .object({
     page: z.coerce.number().int().min(1, "page → Debe ser ≥ 1"),
@@ -259,10 +262,9 @@ export const ProductoListInput = z
 /* ===========================================================
    ✅ GET unificado: /productos/findbycontainerignorecase (por QUERY)
    =========================================================== */
-
 export const ProductoFindQuerySchema = z
   .object({
-    clave: emptyOr(claveStrict("clave", 10)).optional().default(""),
+    clave: emptyOr(Clave).optional().default(""),
     nombre: emptyOr(safeText("nombre", 3, 120)).optional().default(""),
     page: z.coerce.number().int().min(1, "page → Debe ser ≥ 1").default(1),
     per_page: z
@@ -279,18 +281,21 @@ export const ProductoFindQuerySchema = z
 /* ===========================================================
    📦 Tipos
    =========================================================== */
-
 export type CreateProductoDTO = z.infer<typeof CreateProductoSchema>;
 export type UpdateProductoDTO = z.infer<typeof UpdateProductoSchema>;
 export type UpdateStockMinimoDTO = z.infer<typeof UpdateStockMinimoSchema>;
 
 export type IdPorClaveDTO = z.infer<typeof IdPorClaveSchema>;
 export type UpdatePorClaveDTO = z.infer<typeof UpdatePorClaveSchema>;
-export type UpdateStockMinimoPorClaveDTO = z.infer<typeof UpdateStockMinimoPorClaveSchema>;
+export type UpdateStockMinimoPorClaveDTO = z.infer<
+  typeof UpdateStockMinimoPorClaveSchema
+>;
 
 export type IdPorNombreDTO = z.infer<typeof IdPorNombreSchema>;
 export type UpdatePorNombreDTO = z.infer<typeof UpdatePorNombreSchema>;
-export type UpdateStockMinimoPorNombreDTO = z.infer<typeof UpdateStockMinimoPorNombreSchema>;
+export type UpdateStockMinimoPorNombreDTO = z.infer<
+  typeof UpdateStockMinimoPorNombreSchema
+>;
 
 export type ProductoListInputDTO = z.infer<typeof ProductoListInput>;
 export type ProductoFindQueryDTO = z.infer<typeof ProductoFindQuerySchema>;

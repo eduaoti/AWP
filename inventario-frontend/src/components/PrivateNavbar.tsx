@@ -1,6 +1,7 @@
+// src/components/PrivateNavbar.tsx
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { logout } from "../api/auth";
+import { logout as logoutApi } from "../api/auth";
 
 export default function PrivateNavbar() {
   const nav = useNavigate();
@@ -8,14 +9,12 @@ export default function PrivateNavbar() {
 
   async function handleLogout() {
     try {
-      await logout(); // Llama al backend para cerrar la sesión
+      await logoutApi();
     } catch (error) {
-      console.warn("⚠️ Error cerrando sesión en backend:", error);
+      console.warn("⚠️ No se pudo cerrar sesión en backend (token expirado o sin conexión)");
     } finally {
-      // Limpia el contexto y localStorage
       await logoutCtx();
-      localStorage.removeItem("usuario");
-      localStorage.removeItem("token");
+      sessionStorage.setItem("logoutMsg", "Se cerró sesión correctamente ✅");
       nav("/login", { replace: true });
     }
   }
@@ -23,6 +22,7 @@ export default function PrivateNavbar() {
   return (
     <nav className="bg-indigo-600 text-white p-4 flex justify-between items-center">
       <div className="flex items-center space-x-6">
+        {/* Logo / título clickable */}
         <span
           className="font-bold text-lg cursor-pointer"
           onClick={() => nav("/inicio")}
@@ -30,43 +30,43 @@ export default function PrivateNavbar() {
           Inventario
         </span>
 
+        {/* Links principales */}
         <Link to="/inicio" className="hover:underline">
           Inicio
         </Link>
-
         <Link to="/productos" className="hover:underline">
           Productos
         </Link>
-
-        {/* ✅ Nuevo enlace para Categorías */}
         <Link to="/categorias" className="hover:underline">
           Categorías
         </Link>
-
         <Link to="/usuarios" className="hover:underline">
           Usuarios
         </Link>
-
         <Link to="/movimientos" className="hover:underline">
           Movimientos
         </Link>
-
         <Link to="/proveedores" className="hover:underline">
           Proveedores
         </Link>
-
         <Link to="/almacenes" className="hover:underline">
           Almacenes
         </Link>
 
-        <Link to="/estadisticas" className="hover:underline">
-          Estadísticas
+        {/* 📊 Reportes (movimientos por producto) */}
+        <Link to="/reportes/movimientos-producto" className="hover:underline">
+          Reportes
+        </Link>
+
+        {/* 📝 Bitácora (tabs con accesos / movimientos / sistema) */}
+        <Link to="/bitacora" className="hover:underline">
+          Bitácora
         </Link>
       </div>
 
       <div className="flex items-center space-x-4">
-        {/* ✅ Mostrar nombre del usuario desde el contexto */}
         {user && <span className="font-medium">{user.nombre}</span>}
+
         <button
           onClick={handleLogout}
           className="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-white"

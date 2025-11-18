@@ -41,7 +41,10 @@ const NombreProveedor = z.preprocess(
     .refine((v) => !/[<>]/.test(v), "nombre → No se permiten etiquetas HTML (< >)")
     .refine((v) => !INVISIBLES.test(v), "nombre → No se permiten caracteres invisibles/de control")
     .refine((v) => !EMOJI.test(v), "nombre → No se permiten emojis")
-    .refine((v) => !/(^[-'’.]|[-'’.]$)/.test(v), "nombre → Guion/apóstrofe/punto al inicio o fin no permitido")
+    .refine(
+      (v) => !/(^[-'’.]|[-'’.]$)/.test(v),
+      "nombre → Guion/apóstrofe/punto al inicio o fin no permitido"
+    )
     .transform((v) => v.replace(/\s+/g, " "))
 );
 
@@ -65,13 +68,13 @@ const TelefonoOpt = z.preprocess(
       if (v.length < 10 || v.length > 11) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `telefono → Debe contener 10 a 11 dígitos (recibidos: ${v.length})`
+          message: `telefono → Debe contener 10 a 11 dígitos (recibidos: ${v.length})`,
         });
       }
       if (/^(\d)\1+$/.test(v)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "telefono → No puede ser una secuencia del mismo dígito (ej. 0000000000)"
+          message: "telefono → No puede ser una secuencia del mismo dígito (ej. 0000000000)",
         });
       }
     })
@@ -96,7 +99,7 @@ const ContactoOpt = z.preprocess(
     .refine((v) => !/(.)\1{4,}/.test(v), "contacto → Contenido ambiguo o repetitivo (flood)")
     .refine(
       (v) => /^[\p{L}\p{N}\s.,()\-'"&/]+$/u.test(v),
-      "contacto → Solo letras, números, espacios y . , ( ) - ' \" & /"
+      'contacto → Solo letras, números, espacios y . , ( ) - \' " & /'
     )
     .refine((v) => !/[<>]/.test(v), "contacto → No se permiten etiquetas HTML (< >)")
     .refine((v) => !INVISIBLES.test(v), "contacto → No se permiten caracteres invisibles/de control")
@@ -106,14 +109,28 @@ const ContactoOpt = z.preprocess(
 );
 
 /* =========================================
-   Esquema público
+   Esquema público: CREAR proveedor
    ========================================= */
 export const CreateProveedorSchema = z
   .object({
     nombre: NombreProveedor,
     telefono: TelefonoOpt,
-    contacto: ContactoOpt
+    contacto: ContactoOpt,
   })
   .strict();
 
 export type CreateProveedorDTO = z.infer<typeof CreateProveedorSchema>;
+
+/* =========================================
+   Esquema público: ACTUALIZAR proveedor
+   - mismo payload que create
+   - más id obligatorio (>0, entero)
+   ========================================= */
+export const UpdateProveedorSchema = CreateProveedorSchema.extend({
+  id: z
+    .number() // 👈 sin opciones; tu versión de Zod no las soporta
+    .int("id → Debe ser un entero")
+    .positive("id → Debe ser mayor que 0"),
+});
+
+export type UpdateProveedorDTO = z.infer<typeof UpdateProveedorSchema>;

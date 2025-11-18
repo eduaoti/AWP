@@ -6,7 +6,7 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt';
 process.env.JWT_PREAUTH_SECRET = process.env.JWT_PREAUTH_SECRET || 'test-pre';
 process.env.JWT_OFFLINE_SECRET = process.env.JWT_OFFLINE_SECRET || 'test-offline';
-process.env.SESSION_TTL_MIN = process.env.SESSION_TTL_MIN || '5';
+process.env.SESSION_TTL_MIN = process.env.SESSION_TTL_MIN || '30';
 process.env.RECOVERY_TOKEN_MINUTES = process.env.RECOVERY_TOKEN_MINUTES || '15';
 process.env.APP_URL = process.env.APP_URL || 'http://localhost:3000';
 

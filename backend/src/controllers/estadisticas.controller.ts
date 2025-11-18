@@ -1,98 +1,188 @@
-// src/controllers/estadisticas.controller.ts
-import { Request, Response } from "express";
+// backend/src/controllers/estadisticas.controller.ts
+import { Request, Response, NextFunction } from "express";
 import { sendCode } from "../status/respond";
 import { AppCode } from "../status/codes";
-import * as EstadisticasService from "../services/domain/estadisticas.service";
-import {
-  validarVentasPorProducto,
-  validarProductosMenorVenta,
-  validarProductosExtremos,
-} from "../dto/estadisticas.dto";
+import * as EstadisticasModel from "../models/estadisticas.model";
 
 /* ===========================================================
-   Helpers de error
+   Helpers para mapear errores del modelo a AppCode / mensajes
    =========================================================== */
-function handledAppError(req: Request, res: Response, e: any) {
-  if (e?.status === 400 && ["RANGO_FECHAS_INVALIDO", "PARAMETRO_INVALIDO"].includes(e?.code)) {
-    return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
-      httpStatus: 200,
-      message: e.message || "Validación fallida",
-    });
+
+function handleEstadisticasError(
+  req: Request,
+  res: Response,
+  err: any,
+  contexto: string
+) {
+  const code = err?.code as string | undefined;
+
+  // Errores de validación de entrada (rangos, parámetros)
+  if (code === "RANGO_FECHAS_INVALIDO" || code === "PARAMETRO_INVALIDO") {
+    return sendCode(
+      req,
+      res,
+      AppCode.VALIDATION_FAILED,
+      {
+        error: {
+          code,
+          detail: err.detail ?? null,
+          contexto,
+        },
+      },
+      {
+        // Convención de reportes: siempre 200
+        httpStatus: 200,
+        message: err.message || "Parámetros inválidos para el reporte.",
+      }
+    );
   }
-  if (e?.status === 500 && (e?.code === "DB_ERROR" || e?.code === "INTERNAL")) {
-    return sendCode(req, res, AppCode.DB_ERROR, undefined, {
-      httpStatus: 200,
-      message: "Error de base de datos",
-    });
+
+  // Errores de base de datos ya normalizados en el modelo
+  if (code === "DB_ERROR") {
+    return sendCode(
+      req,
+      res,
+      AppCode.DB_ERROR,
+      {
+        error: {
+          code,
+          detail: err.detail ?? null,
+          contexto,
+        },
+      },
+      {
+        httpStatus: 200,
+        message:
+          err.message ||
+          "Error de base de datos al calcular estadísticas. Intenta de nuevo más tarde.",
+      }
+    );
   }
-  return sendCode(req, res, AppCode.DB_ERROR, undefined, {
-    httpStatus: 200,
-    message: "Error interno del servidor",
-  });
+
+  // Fallback genérico
+  return sendCode(
+    req,
+    res,
+    AppCode.DB_ERROR,
+    {
+      error: {
+        code: code ?? "UNKNOWN",
+        detail: err?.detail ?? null,
+        contexto,
+      },
+    },
+    {
+      httpStatus: 200,
+      message:
+        err?.message ||
+        "Ocurrió un error inesperado al procesar la solicitud de estadísticas.",
+    }
+  );
 }
 
 /* ===========================================================
-   CONTROLADORES
+   POST /estadisticas/ventas-producto
+   Body JSON: { desde: string, hasta: string }
    =========================================================== */
-export async function ventasPorProducto(req: Request, res: Response) {
-  const valid = validarVentasPorProducto(req.body);
-  if (!valid.ok) {
-    return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
-      httpStatus: 200,
-      message: valid.errores.join("; "),
-    });
-  }
-
+export async function ventasPorProducto(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const { desde, hasta } = valid.data;
-    const data = await EstadisticasService.ventasPorProducto(desde, hasta);
+    if (!req.body || typeof req.body !== "object") {
+      const e: any = new Error("El cuerpo de la petición debe ser un JSON.");
+      e.code = "PARAMETRO_INVALIDO";
+      e.detail = { body: req.body };
+      throw e;
+    }
+
+    const { desde, hasta } = req.body as {
+      desde?: string;
+      hasta?: string;
+    };
+
+    const data = await EstadisticasModel.ventasPorProducto(desde, hasta);
+
     return sendCode(req, res, AppCode.OK, data, {
       httpStatus: 200,
-      message: "Ventas por producto generadas con éxito",
+      message: "Ventas por producto calculadas correctamente.",
     });
-  } catch (e: any) {
-    return handledAppError(req, res, e);
+  } catch (err) {
+    return handleEstadisticasError(req, res, err, "ventasPorProducto");
   }
 }
 
-export async function productosMenorVenta(req: Request, res: Response) {
-  const valid = validarProductosMenorVenta(req.body);
-  if (!valid.ok) {
-    return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
-      httpStatus: 200,
-      message: valid.errores.join("; "),
-    });
-  }
-
+/* ===========================================================
+   POST /estadisticas/productos-menor-venta
+   Body JSON: { desde: string, hasta: string, limite?: number }
+   =========================================================== */
+export async function productosMenorVenta(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const { desde, hasta, limite } = valid.data;
-    const data = await EstadisticasService.productosMenorVenta(desde, hasta, limite ?? 10);
+    if (!req.body || typeof req.body !== "object") {
+      const e: any = new Error("El cuerpo de la petición debe ser un JSON.");
+      e.code = "PARAMETRO_INVALIDO";
+      e.detail = { body: req.body };
+      throw e;
+    }
+
+    const { desde, hasta, limite } = req.body as {
+      desde?: string;
+      hasta?: string;
+      limite?: unknown;
+    };
+
+    const data = await EstadisticasModel.productosMenorVenta(
+      desde,
+      hasta,
+      limite
+    );
+
     return sendCode(req, res, AppCode.OK, data, {
       httpStatus: 200,
-      message: "Productos de menor venta generados con éxito",
+      message:
+        "Productos con menor venta obtenidos correctamente en el rango indicado.",
     });
-  } catch (e: any) {
-    return handledAppError(req, res, e);
+  } catch (err) {
+    return handleEstadisticasError(req, res, err, "productosMenorVenta");
   }
 }
 
-export async function productosExtremos(req: Request, res: Response) {
-  const valid = validarProductosExtremos(req.body);
-  if (!valid.ok) {
-    return sendCode(req, res, AppCode.VALIDATION_FAILED, undefined, {
-      httpStatus: 200,
-      message: valid.errores.join("; "),
-    });
-  }
-
+/* ===========================================================
+   POST /estadisticas/productos-extremos
+   Body JSON: { desde: string, hasta: string, top?: number }
+   =========================================================== */
+export async function productosExtremos(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   try {
-    const { desde, hasta, top } = valid.data;
-    const data = await EstadisticasService.productosExtremos(desde, hasta, top ?? 10);
+    if (!req.body || typeof req.body !== "object") {
+      const e: any = new Error("El cuerpo de la petición debe ser un JSON.");
+      e.code = "PARAMETRO_INVALIDO";
+      e.detail = { body: req.body };
+      throw e;
+    }
+
+    const { desde, hasta, top } = req.body as {
+      desde?: string;
+      hasta?: string;
+      top?: unknown;
+    };
+
+    const data = await EstadisticasModel.productosExtremos(desde, hasta, top);
+
     return sendCode(req, res, AppCode.OK, data, {
       httpStatus: 200,
-      message: "Productos extremos generados con éxito",
+      message:
+        "Productos extremos (más barato y más caro entre los más vendidos) obtenidos correctamente.",
     });
-  } catch (e: any) {
-    return handledAppError(req, res, e);
+  } catch (err) {
+    return handleEstadisticasError(req, res, err, "productosExtremos");
   }
 }
