@@ -1,15 +1,15 @@
+import { useNavigate } from "react-router-dom";
 import PrivateNavbar from "../components/PrivateNavbar";
 import { useAuth } from "../context/AuthContext";
 
 export default function Inicio() {
-  const { user } = useAuth(); // ✅ Se obtiene desde el contexto global
+  const { user } = useAuth();
+  const nav = useNavigate(); // 👈 para navegación SPA sin recargar
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* ✅ Navbar privada (ya no recibe props) */}
       <PrivateNavbar />
 
-      {/* ✅ Contenido principal */}
       <main className="flex flex-col items-center justify-center flex-1 text-center p-6">
         <h1 className="text-3xl font-bold text-slate-800 mb-2">
           Bienvenido al Sistema de Inventario
@@ -26,16 +26,17 @@ export default function Inicio() {
 
         <div className="flex flex-wrap justify-center gap-4">
           <button
-            onClick={() => (window.location.href = "/productos")}
+            onClick={() => nav("/productos")}
             className="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700 transition"
           >
             Ir a Productos
           </button>
+
           <button
-            onClick={() => (window.location.href = "/bitacora")}
+            onClick={() => nav("/bitacora")}
             className="bg-slate-200 text-slate-700 px-6 py-2 rounded-lg shadow hover:bg-slate-300 transition"
           >
-            Ver Bitacoras
+            Ver Bitácoras
           </button>
         </div>
       </main>
