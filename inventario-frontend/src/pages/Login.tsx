@@ -12,38 +12,123 @@ export default function Login() {
   const location = useLocation();
   const { setToken, setUser } = useAuth();
 
-  // Mensaje persistente al cerrar sesión
+  // Mensaje de logout persistente
   const [logoutMsg, setLogoutMsg] = useState<string | null>(
     location.state?.logoutMsg || sessionStorage.getItem("logoutMsg")
   );
 
+  // Form fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Real-time validation errors
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
+  // UI controls
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // 👁 Estado para mostrar/ocultar contraseña
   const [showPass, setShowPass] = useState(false);
 
+  // Limpieza del mensaje al cerrar sesión
   useEffect(() => {
     if (logoutMsg) {
       sessionStorage.removeItem("logoutMsg");
-      const timer = setTimeout(() => setLogoutMsg(null), 4000);
+      const timer = setTimeout(() => setLogoutMsg(null), 3500);
       return () => clearTimeout(timer);
     }
   }, [logoutMsg]);
 
+  /* ────────────────────────────────────────────────
+      VALIDACIONES EN TIEMPO REAL
+  ──────────────────────────────────────────────── */
+
+  // EMAIL
+  function validateEmail(value: string): boolean {
+    if (!value.trim()) {
+      setEmailError("El correo no puede estar vacío.");
+      return false;
+    }
+
+    if (value.length > 80) {
+      setEmailError("El correo no debe exceder 80 caracteres.");
+      return false;
+    }
+
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!regex.test(value.trim())) {
+      setEmailError("Formato de correo inválido.");
+      return false;
+    }
+
+    setEmailError(null);
+    return true;
+  }
+
+  // PASSWORD
+  function validatePassword(value: string): boolean {
+    if (!value) {
+      setPasswordError("La contraseña no puede estar vacía.");
+      return false;
+    }
+
+    if (value.length < 8) {
+      setPasswordError("Debe tener al menos 8 caracteres.");
+      return false;
+    }
+
+    if (value.length > 64) {
+      setPasswordError("La contraseña no debe exceder 64 caracteres.");
+      return false;
+    }
+
+    if (!/[A-Z]/.test(value)) {
+      setPasswordError("Debe contener al menos una letra mayúscula.");
+      return false;
+    }
+
+    if (!/[a-z]/.test(value)) {
+      setPasswordError("Debe contener al menos una letra minúscula.");
+      return false;
+    }
+
+    if (!/[0-9]/.test(value)) {
+      setPasswordError("Debe contener al menos un número.");
+      return false;
+    }
+
+    if (!/[^A-Za-z0-9]/.test(value)) {
+      setPasswordError("Debe contener al menos un carácter especial.");
+      return false;
+    }
+
+    setPasswordError(null);
+    return true;
+  }
+
+  /* ────────────────────────────────────────────────
+      SUBMIT FORM
+  ──────────────────────────────────────────────── */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+
+    // ❌ Evitar submit si hay errores de validación
+    const emailValid = validateEmail(email);
+    const passValid = validatePassword(password);
+
+    if (!emailValid || !passValid) {
+      setErr("Corrige los errores antes de continuar.");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const { data } = await loginPassword(email.trim(), password);
       const preAuth = data?.data?.preAuth;
-      const msg = data?.mensaje || "";
 
+      // Login normal
       if (data?.data?.usuario && data?.data?.token) {
         const usuario = data.data.usuario;
         const token = data.data.token;
@@ -58,24 +143,23 @@ export default function Login() {
         return;
       }
 
+      // OTP enrollment
       if (data?.data?.needsEnrollment && preAuth) {
-        nav(`/otp-setup?preAuth=${encodeURIComponent(preAuth)}`, {
-          state: { fromMsg: msg },
-        });
+        nav(`/otp-setup?preAuth=${encodeURIComponent(preAuth)}`);
         return;
       }
 
+      // OTP verification
       if (data?.data?.requiresOtp && preAuth && !data?.data?.offline) {
         nav(`/otp-verify?preAuth=${encodeURIComponent(preAuth)}`);
         return;
       }
 
+      // OTP offline mode
       if (data?.data?.offline && preAuth) {
         const { offline } = data.data;
         nav(
-          `/offline-pin?preAuth=${encodeURIComponent(
-            preAuth
-          )}&offlineJwt=${encodeURIComponent(offline.offlineJwt)}`,
+          `/offline-pin?preAuth=${preAuth}&offlineJwt=${offline.offlineJwt}`,
           { state: { pin: offline.pin, expiresAt: offline.expiresAt } }
         );
         return;
@@ -94,6 +178,8 @@ export default function Login() {
     }
   }
 
+  /* ──────────────────────────────────────────────── */
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50">
       <Navbar />
@@ -102,8 +188,8 @@ export default function Login() {
         <form
           onSubmit={onSubmit}
           className="w-full max-w-md bg-white p-6 rounded-xl shadow"
-          autoComplete="off"   // 🔧 evita que el navegador interfiera de más
-          noValidate           // 🔧 desactiva validación nativa (type="email")
+          autoComplete="off"
+          noValidate
         >
           <h1 className="text-2xl font-bold mb-1">Iniciar sesión</h1>
           <p className="text-slate-600 mb-4">
@@ -122,27 +208,39 @@ export default function Login() {
             </div>
           )}
 
+          {/* EMAIL */}
           <TextField
             label="Email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            maxLength={80}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              validateEmail(e.target.value);
+            }}
+            autoComplete="email"
             required
-            autoComplete="email"          // ✅ correcto para login
           />
+          {emailError && (
+            <p className="text-red-600 text-sm mt-1">{emailError}</p>
+          )}
 
-          {/* 🔐 Campo contraseña con icono de ojo */}
-          <div className="relative">
+          {/* PASSWORD */}
+          <div className="relative mt-4">
             <TextField
               label="Contraseña"
               type={showPass ? "text" : "password"}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              maxLength={64}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                validatePassword(e.target.value);
+              }}
+              autoComplete="current-password"
               required
-              autoComplete="current-password"  // ✅ ayuda a que el gestor no bloquee
             />
 
-            {/* Botón del ojo */}
+            {/* OJITO PROFESIONAL */}
             <button
               type="button"
               onClick={() => setShowPass((v) => !v)}
@@ -150,7 +248,7 @@ export default function Login() {
               aria-label="Mostrar u ocultar contraseña"
             >
               {showPass ? (
-                // 👁 Ojo abierto
+                // OJO ABIERTO
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-5 w-5"
@@ -158,21 +256,15 @@ export default function Login() {
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                   />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                   />
                 </svg>
               ) : (
-                // 👁‍🗨 Ojo cerrado
+                // OJO TACHADO
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-5 w-5"
@@ -180,16 +272,17 @@ export default function Login() {
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 012.958-4.533M6.223 6.223A9.969 9.969 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.972 9.972 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a3 3 0 013 3m-3-3L3 3"
                   />
                 </svg>
               )}
             </button>
           </div>
+
+          {passwordError && (
+            <p className="text-red-600 text-sm mt-1">{passwordError}</p>
+          )}
 
           <div className="flex items-center justify-between mt-2 mb-4 text-sm">
             <Link className="text-indigo-700 hover:underline" to="/recovery">
@@ -201,11 +294,17 @@ export default function Login() {
             </Link>
           </div>
 
-          {/* 🔑 IMPORTANTE: type="submit" para que dispare onSubmit en todos los navegadores */}
+          {/* BOTÓN DESHABILITADO SI HAY ERRORES */}
           <Button
             type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white"
+            disabled={
+              loading ||
+              emailError !== null ||
+              passwordError !== null ||
+              email.trim() === "" ||
+              password.trim() === ""
+            }
+            className="w-full bg-indigo-600 text-white disabled:opacity-50"
           >
             {loading ? "Verificando…" : "Continuar"}
           </Button>

@@ -1,4 +1,3 @@
-// src/pages/Usuarios.tsx
 import React, { useEffect, useState } from "react";
 import {
   listarUsuarios,
@@ -24,8 +23,19 @@ export default function Usuarios() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Estado de errores
+  const [errores, setErrores] = useState<any>({
+    nombre: "",
+    email: "",
+    password: "",
+  });
+
   // 👤 Usuario actual desde contexto
   const { user } = useAuth();
+
+  const nombreRegex = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/;
+  const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
   async function cargar() {
     try {
@@ -40,10 +50,61 @@ export default function Usuarios() {
     cargar();
   }, []);
 
+  // Validación de los campos (en tiempo real)
+  const validarCampos = () => {
+    const newErrores: any = {};
+
+    // Validación nombre
+    if (nombre.trim().length === 0) {
+      newErrores.nombre = "¡El nombre es obligatorio!";
+    } else if (nombre.trim().length < 3) {
+      newErrores.nombre = "¡El nombre debe tener al menos 3 caracteres!";
+    } else if (!nombreRegex.test(nombre)) {
+      newErrores.nombre = "¡El nombre solo puede contener letras y espacios!";
+    }
+
+    // Validación email
+    if (email.trim().length === 0) {
+      newErrores.email = "¡El correo electrónico es obligatorio!";
+    } else if (!emailRegex.test(email)) {
+      newErrores.email = "¡El correo electrónico no es válido!";
+    }
+
+    // Validación contraseña (solo cuando se está creando un nuevo usuario)
+    if (!editId && password.trim().length === 0) {
+      newErrores.password = "¡La contraseña es obligatoria!";
+    } else if (!editId && password.trim().length < 8) {
+      newErrores.password = "¡La contraseña debe tener al menos 8 caracteres!";
+    } else if (!editId && !passwordRegex.test(password)) {
+      newErrores.password =
+        "¡La contraseña debe tener al menos una mayúscula, un número y un carácter especial!";
+    }
+
+    setErrores(newErrores); // Actualizar errores en tiempo real
+    return newErrores;
+  };
+
+  // Función para manejar los cambios de los campos
+  const handleChange = (field: string, value: string) => {
+    if (field === "nombre") setNombre(value);
+    if (field === "email") setEmail(value);
+    if (field === "password") setPassword(value);
+
+    // Validar en tiempo real al cambiar el valor de los campos
+    validarCampos();
+  };
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setMsg(null);
+
+    const validaciones = validarCampos();
+
+    // Si hay errores, no enviar el formulario
+    if (Object.keys(validaciones).length > 0) {
+      return;
+    }
 
     try {
       if (editId) {
@@ -81,7 +142,7 @@ export default function Usuarios() {
     setNombre(u.nombre);
     setEmail(u.email);
     setRol(u.rol);
-    setPassword("");
+    setPassword(""); // Limpiar la contraseña al editar
   }
 
   return (
@@ -91,7 +152,7 @@ export default function Usuarios() {
 
       {/* 🔹 Contenido principal */}
       <main className="flex-1 p-6">
-        <h1 className="text-2xl font-bold mb-2 text-slate-800">
+        <h1 className="text-2xl font-bold mb-4 text-slate-800">
           Gestión de Usuarios
         </h1>
 
@@ -119,55 +180,83 @@ export default function Usuarios() {
         {/* Formulario de creación / edición */}
         <form
           onSubmit={onSubmit}
-          className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-white p-4 rounded-xl shadow-sm border"
+          className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-6 rounded-xl shadow-sm border"
         >
-          <TextField
-            label="Nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            required
-          />
-          <TextField
-            label="Correo electrónico"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          {!editId && (
+          <div className="flex flex-col">
             <TextField
-              label="Contraseña"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              label="Nombre"
+              value={nombre}
+              onChange={(e) => handleChange("nombre", e.target.value)}
               required
+              error={errores.nombre}
+              className={`p-2 border ${errores.nombre ? "border-red-400" : "border-slate-300"}`}
             />
+            {errores.nombre && (
+              <p className="text-xs text-red-600 mt-1">{errores.nombre}</p>
+            )}
+          </div>
+
+          <div className="flex flex-col">
+            <TextField
+              label="Correo electrónico"
+              type="email"
+              value={email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              required
+              error={errores.email}
+              className={`p-2 border ${errores.email ? "border-red-400" : "border-slate-300"}`}
+            />
+            {errores.email && (
+              <p className="text-xs text-red-600 mt-1">{errores.email}</p>
+            )}
+          </div>
+
+          {!editId && (
+            <div className="flex flex-col">
+              <TextField
+                label="Contraseña"
+                type="password"
+                value={password}
+                onChange={(e) => handleChange("password", e.target.value)}
+                required
+                error={errores.password}
+                className={`p-2 border ${errores.password ? "border-red-400" : "border-slate-300"}`}
+              />
+              {errores.password && (
+                <p className="text-xs text-red-600 mt-1">{errores.password}</p>
+              )}
+            </div>
           )}
 
-          <label className="block">
-            <span className="block text-sm font-medium text-slate-700 mb-1">
-              Rol
-            </span>
-            <select
-              value={rol}
-              onChange={(e) => setRol(e.target.value as Usuario["rol"])}
-              className="w-full rounded-lg border px-3 py-2 border-slate-300"
-            >
-              <option value="admin">Administrador</option>
-              <option value="editor">Editor</option>
-              <option value="lector">Lector</option>
-              <option value="jefe_inventario">Jefe de inventario</option>
-            </select>
-          </label>
+          <div className="col-span-3">
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">
+                Rol
+              </span>
+              <select
+                value={rol}
+                onChange={(e) => setRol(e.target.value as Usuario["rol"])}
+                className="w-full p-2 border rounded-lg"
+              >
+                <option value="admin">Administrador</option>
+                <option value="editor">Editor</option>
+                <option value="lector">Lector</option>
+                <option value="jefe_inventario">Jefe de inventario</option>
+              </select>
+            </label>
+          </div>
 
-          <div className="md:col-span-2 lg:col-span-3 flex gap-2 mt-2">
-            <Button className="bg-indigo-600 text-white px-6">
+          <div className="col-span-3 flex gap-4 justify-end mt-4">
+            <Button
+              className="bg-indigo-600 text-white px-6 py-2"
+              disabled={Object.keys(errores).length > 0}
+            >
               {editId ? "Actualizar" : "Registrar"}
             </Button>
             {editId && (
               <Button
                 type="button"
-                className="bg-slate-500 text-white"
+                className="bg-slate-500 text-white px-6 py-2"
                 onClick={() => {
                   setEditId(null);
                   setNombre("");

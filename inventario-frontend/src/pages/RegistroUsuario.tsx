@@ -10,6 +10,13 @@ type FieldErrors = {
   confirm?: string;
 };
 
+type Touched = {
+  nombre: boolean;
+  email: boolean;
+  password: boolean;
+  confirm: boolean;
+};
+
 export default function RegistroUsuario() {
   const nav = useNavigate();
 
@@ -26,41 +33,71 @@ export default function RegistroUsuario() {
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Solo letras (incluye acentos/ñ/ü) y espacios
-  const nombreRegex = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/;
+  const [touched, setTouched] = useState<Touched>({
+    nombre: false,
+    email: false,
+    password: false,
+    confirm: false,
+  });
 
-  // Normaliza espacios: evita "  Juan   Perez "
+  const nombreRegex = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/;
+  const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
   function normalizarNombre(v: string) {
     return v.normalize("NFKC").replace(/\s+/g, " ").trim();
   }
 
-  // ---------- Validación local ----------
+  // Validación en tiempo real
   function validarLocal(): FieldErrors {
     const e: FieldErrors = {};
     const nombreTrim = normalizarNombre(nombre);
+    const passwordTrim = password.trim(); // Eliminar espacios al inicio y final
+    const confirmTrim = confirm.trim(); // Eliminar espacios al inicio y final
 
-    if (nombreTrim.length > 0 && nombreTrim.length < 3) {
-      e.nombre = "El nombre debe tener al menos 3 caracteres";
-    } else if (nombreTrim.length > 0 && !nombreRegex.test(nombreTrim)) {
-      e.nombre = "El nombre solo puede contener letras y espacios";
+    // Validación nombre
+    if (nombreTrim.length === 0) {
+      e.nombre = "¡El nombre es obligatorio! Por favor, ingresa tu nombre completo.";
+    } else if (nombreTrim.length < 3) {
+      e.nombre = "¡El nombre debe tener al menos 3 caracteres! Usa tu nombre completo si es necesario.";
+    } else if (nombreTrim.length > 100) {
+      e.nombre = "¡El nombre no puede tener más de 100 caracteres! Usa un nombre más corto.";
+    } else if (!nombreRegex.test(nombreTrim)) {
+      e.nombre = "¡El nombre solo puede contener letras y espacios! Asegúrate de no usar números ni caracteres especiales.";
     }
 
-    if (email.trim().length > 0 && !/\S+@\S+\.\S+/.test(email)) {
-      e.email = "Formato de correo inválido";
+    // Validación correo electrónico
+    if (email.trim().length === 0) {
+      e.email = "¡El correo electrónico es obligatorio! Por favor, ingresa un correo válido.";
+    } else if (!emailRegex.test(email)) {
+      e.email = "¡El correo electrónico no es válido! Asegúrate de usar un formato como ejemplo@dominio.com.";
+    } else if (email.trim().length < 5 || email.trim().length > 100) {
+      e.email = "¡El correo electrónico debe tener entre 5 y 100 caracteres!";
     }
 
-    if (password.length > 0 && password.length < 8) {
-      e.password = "La contraseña debe tener al menos 8 caracteres";
+    // Validación contraseña
+    if (passwordTrim.length === 0) {
+      e.password = "¡La contraseña es obligatoria! Debes crear una contraseña segura.";
+    } else if (passwordTrim.length < 8 || passwordTrim.length > 20) {
+      e.password = "¡La contraseña debe tener entre 8 y 20 caracteres!";
+    } else if (!passwordRegex.test(passwordTrim)) {
+      e.password =
+        "¡La contraseña debe tener al menos una mayúscula, un número y un carácter especial (por ejemplo, @, $, !).";
     }
 
-    if (confirm.length > 0 && password !== confirm) {
-      e.confirm = "No coincide con la contraseña";
+    // Validación confirmación de contraseña
+    if (confirmTrim.length === 0) {
+      e.confirm = "¡Debes confirmar la contraseña! Asegúrate de escribirla igual.";
+    } else if (confirmTrim !== passwordTrim) {
+      e.confirm = "¡Las contraseñas no coinciden! Asegúrate de que ambas contraseñas sean iguales.";
+    } else if (confirmTrim.length < 8 || confirmTrim.length > 20) {
+      e.confirm = "¡La confirmación de contraseña debe tener entre 8 y 20 caracteres!";
     }
 
     return e;
   }
 
-  // ---------- Debounce para backend ----------
+  // Debounced input para evitar múltiples validaciones en el servidor
   const debouncedPayload = useMemo(
     () => ({
       nombre: normalizarNombre(nombre),
@@ -74,14 +111,12 @@ export default function RegistroUsuario() {
     setError(null);
     setSuccess(null);
 
-    // 1) valida local primero
+    // Validación local en tiempo real
     const localErrs = validarLocal();
     setErrores(localErrs);
 
-    // si hay errores locales, no consultes backend
     if (Object.keys(localErrs).length > 0) return;
 
-    // 2) valida backend si pasó local
     const t = setTimeout(async () => {
       try {
         const res = await validarUsuario(debouncedPayload);
@@ -91,14 +126,38 @@ export default function RegistroUsuario() {
           setErrores(res.data?.errores || {});
         }
       } catch {
-        console.warn("validarUsuario() falló, usando local");
+        console.warn("validarUsuario() falló, usando validación local");
       }
     }, 400);
 
     return () => clearTimeout(t);
   }, [debouncedPayload]);
 
-  // ---------- Submit ----------
+  // Validar confirmación de la contraseña al cambiarla
+  useEffect(() => {
+    if (confirm !== password) {
+      setErrores((prev) => ({
+        ...prev,
+        confirm: "¡Las contraseñas no coinciden! Asegúrate de que ambas contraseñas sean iguales.",
+      }));
+    } else {
+      setErrores((prev) => {
+        const { confirm, ...rest } = prev;
+        return rest;
+      });
+    }
+  }, [confirm, password]);
+
+  const handleChange = (field: keyof Touched, value: string) => {
+    if (!touched[field]) {
+      setTouched((prev) => ({ ...prev, [field]: true }));
+    }
+    if (field === "nombre") setNombre(value);
+    if (field === "email") setEmail(value);
+    if (field === "password") setPassword(value);
+    if (field === "confirm") setConfirm(value);
+  };
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -123,17 +182,17 @@ export default function RegistroUsuario() {
       );
 
       if (res?.data?.codigo !== 0) {
-        throw new Error(res?.data?.mensaje || "Error al registrar usuario");
+        throw new Error(res?.data?.mensaje || "¡Hubo un problema al registrar tu cuenta! Intenta nuevamente.");
       }
 
-      setSuccess("Registro exitoso. Redirigiendo al inicio de sesión...");
+      setSuccess("¡Registro exitoso! Te redirigiremos al inicio de sesión...");
       setTimeout(() => nav("/login"), 2000);
     } catch (err: any) {
       const msg =
         err?.response?.data?.mensaje ||
         err?.response?.data?.error ||
         err?.message ||
-        "Error al registrar usuario";
+        "¡Error al registrar usuario! Por favor, intenta nuevamente.";
 
       setError(msg);
     } finally {
@@ -172,21 +231,14 @@ export default function RegistroUsuario() {
             <input
               type="text"
               value={nombre}
-              onChange={(e) => {
-                // filtra en vivo: solo letras y espacios
-                const limpio = e.target.value.replace(
-                  /[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]/g,
-                  ""
-                );
-                setNombre(limpio);
-              }}
+              onChange={(e) => handleChange("nombre", e.target.value)}
               className={`mt-1 w-full border rounded-md px-3 py-2 ${
-                errores.nombre ? "border-red-400" : ""
+                touched.nombre && errores.nombre ? "border-red-400" : ""
               }`}
               placeholder="Ej. Ana Pérez"
               required
             />
-            {errores.nombre && (
+            {touched.nombre && errores.nombre && (
               <p className="text-xs text-red-600 mt-1">{errores.nombre}</p>
             )}
           </label>
@@ -197,14 +249,14 @@ export default function RegistroUsuario() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => handleChange("email", e.target.value)}
               className={`mt-1 w-full border rounded-md px-3 py-2 ${
-                errores.email ? "border-red-400" : ""
+                touched.email && errores.email ? "border-red-400" : ""
               }`}
               placeholder="ejemplo@correo.com"
               required
             />
-            {errores.email && (
+            {touched.email && errores.email && (
               <p className="text-xs text-red-600 mt-1">{errores.email}</p>
             )}
           </label>
@@ -217,15 +269,14 @@ export default function RegistroUsuario() {
               <input
                 type={showPass ? "text" : "password"}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => handleChange("password", e.target.value)}
                 className={`mt-1 w-full border rounded-md px-3 py-2 pr-10 ${
-                  errores.password ? "border-red-400" : ""
+                  touched.password && errores.password ? "border-red-400" : ""
                 }`}
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 8 caracteres, 1 mayúscula, 1 número, 1 carácter especial"
                 required
               />
 
-              {/* Ojo original */}
               <button
                 type="button"
                 onClick={() => setShowPass((v) => !v)}
@@ -233,7 +284,6 @@ export default function RegistroUsuario() {
                 aria-label="Mostrar u ocultar contraseña"
               >
                 {showPass ? (
-                  // Ojo abierto
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -255,7 +305,6 @@ export default function RegistroUsuario() {
                     />
                   </svg>
                 ) : (
-                  // Ojo cerrado
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -274,7 +323,7 @@ export default function RegistroUsuario() {
               </button>
             </div>
 
-            {errores.password && (
+            {touched.password && errores.password && (
               <p className="text-xs text-red-600 mt-1">{errores.password}</p>
             )}
           </label>
@@ -287,15 +336,14 @@ export default function RegistroUsuario() {
               <input
                 type={showConfirm ? "text" : "password"}
                 value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
+                onChange={(e) => handleChange("confirm", e.target.value)}
                 className={`mt-1 w-full border rounded-md px-3 py-2 pr-10 ${
-                  errores.confirm ? "border-red-400" : ""
+                  touched.confirm && errores.confirm ? "border-red-400" : ""
                 }`}
                 placeholder="Repite tu contraseña"
                 required
               />
 
-              {/* Ojo original */}
               <button
                 type="button"
                 onClick={() => setShowConfirm((v) => !v)}
@@ -342,7 +390,7 @@ export default function RegistroUsuario() {
               </button>
             </div>
 
-            {errores.confirm && (
+            {touched.confirm && errores.confirm && (
               <p className="text-xs text-red-600 mt-1">{errores.confirm}</p>
             )}
           </label>
