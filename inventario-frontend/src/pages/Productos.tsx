@@ -13,7 +13,7 @@ import {
 import { listarCategorias, type Categoria } from "../api/categorias";
 import { PlusCircle, Pencil, Trash2 } from "lucide-react";
 
-/* ──────────────── Helpers ──────────────── */
+/* ──────────────── Helpers numéricos ──────────────── */
 const BlockMinusAndExp = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (["-", "e", "E"].includes(e.key)) e.preventDefault();
 };
@@ -36,19 +36,16 @@ const parseBackendFieldMessage = (msg?: string) => {
   return null;
 };
 
-/* ──────────────── Validaciones FRONT (copiadas del BACK) ──────────────── */
+/* ──────────────── Validaciones FRONT (igual que BACK) ──────────────── */
 
-// regex exacto del backend:
-// /^[A-Za-z][A-Za-z0-9_-]{1,19}$/
-const CLAVE_RE = /^[A-Za-z][A-Za-z0-9_-]{1,19}$/;
+// Solo letras y números, entre 2 y 8 caracteres
+const CLAVE_RE = /^[A-Za-z0-9]{2,8}$/;
 
 function validarClave(v: string) {
   const val = v.trim();
   if (!val) return "La clave es obligatoria";
-  if (val.length < 2) return "Debe tener al menos 2 caracteres";
-  if (val.length > 20) return "No debe exceder 20 caracteres";
   if (!CLAVE_RE.test(val))
-    return "Debe iniciar con letra y solo usar letras, números, - o _";
+    return "La clave debe tener entre 2 y 8 caracteres y solo letras o números";
   return "";
 }
 
@@ -79,6 +76,41 @@ function validarStockActual(n: number, min: number) {
   return "";
 }
 
+/* ──────────────── Normalización / claves ──────────────── */
+function normalizarTextoClave(s: string) {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quita acentos
+    .replace(/[^A-Za-z0-9]/g, "") // solo letras y números
+    .toUpperCase();
+}
+
+// Clave final para GUARDAR (máx. 8)
+function generarClaveAuto(nombre: string, categoria: string, unidad: string) {
+  const cat = normalizarTextoClave(categoria || "SIN").slice(0, 2); // 2 de categoría
+  const uni = normalizarTextoClave(unidad || "PZ").slice(0, 2);     // 2 de unidad
+  const nom = normalizarTextoClave(nombre || "").slice(0, 4);       // hasta 4 del nombre
+
+  let base = (cat + uni + nom) || "PR01";
+  base = base.slice(0, 8); // máximo 8
+
+  if (base.length < 2) base = (base + "XX").slice(0, 2); // mínimo 2
+
+  return base;
+}
+
+// Prefijo para BUSCAR (no recortamos a 8, solo para coincidencias)
+function construirPrefijoClave(
+  nombreParcial: string,
+  categoria: string,
+  unidad: string
+) {
+  const cat = normalizarTextoClave(categoria).slice(0, 2);
+  const uni = normalizarTextoClave(unidad).slice(0, 2);
+  const nom = normalizarTextoClave(nombreParcial);
+  return (cat + uni + nom).toUpperCase();
+}
+
 /* ──────────────── Componente ──────────────── */
 export default function Productos() {
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -86,18 +118,21 @@ export default function Productos() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // ✅ bandera para NO mostrar nada al inicio
+  // para no mostrar nada al inicio
   const [hasSearched, setHasSearched] = useState(false);
 
-  // búsqueda y filtros
-  const [busqueda, setBusqueda] = useState("");
-  const [filtroCategoria, setFiltroCategoria] = useState("");
-  const [filtroUnidad, setFiltroUnidad] = useState("");
+  // búsqueda
+  const [busquedaNombre, setBusquedaNombre] = useState("");
+  const [buscaClaveCategoria, setBuscaClaveCategoria] = useState("");
+  const [buscaClaveUnidad, setBuscaClaveUnidad] = useState("");
+  const [buscaClaveTexto, setBuscaClaveTexto] = useState("");
+
   const [precioDesde, setPrecioDesde] = useState<number | "">("");
   const [precioHasta, setPrecioHasta] = useState<number | "">("");
 
   const [pagina, setPagina] = useState(1);
   const ITEMS_POR_PAGINA = 10;
+
   const UNIDADES = [
     "pieza",
     "caja",
@@ -122,6 +157,9 @@ export default function Productos() {
   const [unidad, setUnidad] = useState("pieza");
   const [stockMinimo, setStockMinimo] = useState(1);
   const [stock, setStock] = useState(0);
+
+  // indica si el usuario ya tocó la clave manualmente
+  const [claveManual, setClaveManual] = useState(false);
 
   // errores por campo
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -163,9 +201,11 @@ export default function Productos() {
   }
 
   function onLimpiar() {
-    setBusqueda("");
-    setFiltroCategoria("");
-    setFiltroUnidad("");
+    setBusquedaNombre("");
+    setBuscaClaveCategoria("");
+    setBuscaClaveUnidad("");
+    setBuscaClaveTexto("");
+
     setPrecioDesde("");
     setPrecioHasta("");
     setPagina(1);
@@ -173,6 +213,15 @@ export default function Productos() {
     setProductos([]);
     setHasSearched(false);
   }
+
+  /* ──────────────── Autogenerar clave al crear ──────────────── */
+  useEffect(() => {
+    if (!showCreate) return;
+    if (claveManual) return; // si el usuario ya la modificó, no la pisamos
+
+    const auto = generarClaveAuto(nombre, categoria, unidad);
+    setClave(auto);
+  }, [nombre, categoria, unidad, showCreate, claveManual]);
 
   /* ──────────────── Validaciones tiempo real ──────────────── */
   function validateAllRealtime(next?: Partial<{
@@ -198,7 +247,6 @@ export default function Productos() {
     e.stock_minimo = validarStockMinimo(current.stockMinimo);
     e.stock_actual = validarStockActual(current.stock, current.stockMinimo);
 
-    // limpia vacíos
     Object.keys(e).forEach((k) => {
       if (!e[k]) delete e[k];
     });
@@ -207,7 +255,6 @@ export default function Productos() {
     return Object.keys(e).length === 0;
   }
 
-  // revalidar cada vez que cambias algo mientras el modal está abierto
   useEffect(() => {
     if (showCreate || showEdit) validateAllRealtime();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,6 +312,7 @@ export default function Productos() {
     setUnidad(p.unidad);
     setStockMinimo(p.stock_minimo);
     setStock(p.stock_actual);
+    setClaveManual(true); // en edición no queremos autogenerar
     setShowEdit(true);
   }
 
@@ -329,32 +377,44 @@ export default function Productos() {
     setStockMinimo(1);
     setStock(0);
     setErrors({});
+    setClaveManual(false);
   }
 
   /* ──────────────── Filtros + Paginación ──────────────── */
   const productosFiltrados = hasSearched
     ? productos.filter((p) => {
-        const coincideTexto =
-          !busqueda ||
-          p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-          p.clave.toLowerCase().includes(busqueda.toLowerCase());
+        // 1) Filtro por NOMBRE
+        let coincideNombre = true;
+        if (busquedaNombre.trim()) {
+          coincideNombre = p.nombre
+            .toLowerCase()
+            .includes(busquedaNombre.trim().toLowerCase());
+        }
 
-        const coincideCategoria =
-          !filtroCategoria || p.categoria === filtroCategoria;
+        // 2) Filtro por CLAVE (prefijo construido)
+        let coincideClave = true;
+        const tieneBusquedaClave =
+          buscaClaveCategoria ||
+          buscaClaveUnidad ||
+          buscaClaveTexto.trim();
 
-        const coincideUnidad =
-          !filtroUnidad || p.unidad === filtroUnidad;
+        if (tieneBusquedaClave) {
+          const prefijo = construirPrefijoClave(
+            buscaClaveTexto,
+            buscaClaveCategoria,
+            buscaClaveUnidad
+          );
+          if (prefijo) {
+            coincideClave = p.clave.toUpperCase().startsWith(prefijo);
+          }
+        }
 
+        // 3) Filtro de precio
         const coincidePrecio =
           (!precioDesde || p.precio >= precioDesde) &&
           (!precioHasta || p.precio <= precioHasta);
 
-        return (
-          coincideTexto &&
-          coincideCategoria &&
-          coincideUnidad &&
-          coincidePrecio
-        );
+        return coincideNombre && coincideClave && coincidePrecio;
       })
     : [];
 
@@ -382,58 +442,88 @@ export default function Productos() {
         )}
 
         {/* 🔍 Filtros */}
-        <div className="bg-white border p-4 rounded-lg mb-6 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-slate-700 mb-1 block">
-                Buscar producto
-              </label>
-              <input
-                type="text"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Por nombre o clave"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
-              />
-            </div>
-
+        <div className="bg-white border p-4 rounded-lg mb-6 shadow-sm space-y-4">
+          {/* Fila 1: Nombre y Clave */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Buscar por NOMBRE */}
             <div>
               <label className="text-sm font-medium text-slate-700 mb-1 block">
-                Categoría
+                Buscar por nombre
               </label>
-              <select
-                value={filtroCategoria}
-                onChange={(e) => setFiltroCategoria(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
-              >
-                <option value="">Todas</option>
-                {categorias.map((c) => (
-                  <option key={c.id} value={c.nombre}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
+            <input
+  type="text"
+  value={busquedaNombre}
+  onChange={(e) =>
+    setBusquedaNombre(
+      e.target.value
+        .replace(/[^a-zA-Z0-9 ]/g, "") // ❌ elimina caracteres especiales
+        .slice(0, 20) // ❌ máximo 20 caracteres
+    )
+  }
+  placeholder="Ej: Coca, Madera, Clavo..."
+  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+/>
+
             </div>
 
+            {/* Buscar por CLAVE (cat + unidad + letras) */}
             <div>
               <label className="text-sm font-medium text-slate-700 mb-1 block">
-                Unidad
+                Buscar por clave (Categoría + Unidad + letras)
               </label>
-              <select
-                value={filtroUnidad}
-                onChange={(e) => setFiltroUnidad(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2"
-              >
-                <option value="">Todas</option>
-                {UNIDADES.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="grid grid-cols-3 gap-2">
+                {/* Categoría */}
+                <select
+                  value={buscaClaveCategoria}
+                  onChange={(e) => setBuscaClaveCategoria(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2"
+                >
+                  <option value="">Categoría</option>
+                  {categorias.map((c) => (
+                    <option key={c.id} value={c.nombre}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
 
-            <div>
+                {/* Unidad */}
+                <select
+                  value={buscaClaveUnidad}
+                  onChange={(e) => setBuscaClaveUnidad(e.target.value)}
+                  className="border border-slate-300 rounded-lg px-3 py-2"
+                >
+                  <option value="">Unidad</option>
+                  {UNIDADES.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Texto del nombre para la clave */}
+                <input
+                  type="text"
+                  value={buscaClaveTexto}
+                  onChange={(e) =>
+                    setBuscaClaveTexto(
+                      e.target.value
+                        .replace(/[^a-zA-Z0-9]/g, "") // solo letras/números
+                        .slice(0, 8) // máx 8
+                    )
+                  }
+                  placeholder="Letras del nombre"
+                  className="border border-slate-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Se buscarán productos cuya clave empiece con esta combinación.
+              </p>
+            </div>
+          </div>
+
+          {/* Fila 2: Precio */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="md:col-span-1">
               <label className="text-sm font-medium text-slate-700 mb-1 block">
                 Precio (de / a)
               </label>
@@ -466,7 +556,7 @@ export default function Productos() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 mt-4">
+          <div className="flex justify-end gap-2 mt-2">
             <Button
               className="bg-blue-600 text-white px-4 py-2"
               onClick={onBuscar}
@@ -595,9 +685,21 @@ export default function Productos() {
                 <TextField
                   label="Clave"
                   value={clave}
-                  onChange={(e) => setClave(e.target.value)}
+                  maxLength={8} // límite de 8 caracteres
+                  onChange={(e) => {
+                    const v = e.target.value
+                      .replace(/[^a-zA-Z0-9]/g, "") // solo letras/números
+                      .slice(0, 8); // máx 8
+                    setClave(v);
+                    setClaveManual(true); // el usuario decide escribirla
+                  }}
                   required
                 />
+                <p className="text-xs text-slate-500 mt-1">
+                  Se genera automáticamente a partir del nombre, categoría y
+                  unidad. Puedes ajustarla si lo necesitas (solo letras y
+                  números, máx. 8 caracteres).
+                </p>
                 {errors.clave && (
                   <p className="text-red-600 text-xs mt-1">{errors.clave}</p>
                 )}
@@ -608,6 +710,7 @@ export default function Productos() {
               <TextField
                 label="Nombre"
                 value={nombre}
+                maxLength={40} // límite de longitud para nombre
                 onChange={(e) => setNombre(e.target.value)}
                 required
               />
@@ -622,7 +725,10 @@ export default function Productos() {
               </label>
               <select
                 value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
+                onChange={(e) => {
+                  setCategoria(e.target.value);
+                  if (!isEdit) setClaveManual(false);
+                }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2"
               >
                 <option value="">Sin categoría</option>
@@ -640,7 +746,10 @@ export default function Productos() {
               </label>
               <select
                 value={unidad}
-                onChange={(e) => setUnidad(e.target.value)}
+                onChange={(e) => {
+                  setUnidad(e.target.value);
+                  if (!isEdit) setClaveManual(false);
+                }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2"
               >
                 {UNIDADES.map((u) => (

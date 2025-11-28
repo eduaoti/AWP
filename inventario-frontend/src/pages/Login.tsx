@@ -102,6 +102,8 @@ export default function Login() {
         <form
           onSubmit={onSubmit}
           className="w-full max-w-md bg-white p-6 rounded-xl shadow"
+          autoComplete="off"   // 🔧 evita que el navegador interfiera de más
+          noValidate           // 🔧 desactiva validación nativa (type="email")
         >
           <h1 className="text-2xl font-bold mb-1">Iniciar sesión</h1>
           <p className="text-slate-600 mb-4">
@@ -126,6 +128,7 @@ export default function Login() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            autoComplete="email"          // ✅ correcto para login
           />
 
           {/* 🔐 Campo contraseña con icono de ojo */}
@@ -136,6 +139,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              autoComplete="current-password"  // ✅ ayuda a que el gestor no bloquee
             />
 
             {/* Botón del ojo */}
@@ -187,7 +191,6 @@ export default function Login() {
             </button>
           </div>
 
-          {/* ✅ Cambiado a Link para evitar 404 en Render */}
           <div className="flex items-center justify-between mt-2 mb-4 text-sm">
             <Link className="text-indigo-700 hover:underline" to="/recovery">
               ¿Olvidaste tu contraseña?
@@ -198,7 +201,9 @@ export default function Login() {
             </Link>
           </div>
 
+          {/* 🔑 IMPORTANTE: type="submit" para que dispare onSubmit en todos los navegadores */}
           <Button
+            type="submit"
             disabled={loading}
             className="w-full bg-indigo-600 text-white"
           >
