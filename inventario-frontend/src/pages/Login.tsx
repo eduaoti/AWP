@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import TextField from "../components/TextField";
 import Button from "../components/Button";
 import Alert from "../components/Alert";
@@ -143,6 +143,7 @@ export default function Login() {
               type="button"
               onClick={() => setShowPass((v) => !v)}
               className="absolute right-3 top-9 text-slate-600 hover:text-slate-800"
+              aria-label="Mostrar u ocultar contraseña"
             >
               {showPass ? (
                 // 👁 Ojo abierto
@@ -186,13 +187,15 @@ export default function Login() {
             </button>
           </div>
 
+          {/* ✅ Cambiado a Link para evitar 404 en Render */}
           <div className="flex items-center justify-between mt-2 mb-4 text-sm">
-            <a className="text-indigo-700 hover:underline" href="/recovery">
+            <Link className="text-indigo-700 hover:underline" to="/recovery">
               ¿Olvidaste tu contraseña?
-            </a>
-            <a className="text-indigo-700 hover:underline" href="/registro">
+            </Link>
+
+            <Link className="text-indigo-700 hover:underline" to="/registro">
               Crear cuenta
-            </a>
+            </Link>
           </div>
 
           <Button

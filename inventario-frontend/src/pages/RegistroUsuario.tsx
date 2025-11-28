@@ -1,7 +1,14 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../components/Navbar";
-import { crearUsuario } from "../api/usuarios";
+import { crearUsuario, validarUsuario } from "../api/usuarios";
+
+type FieldErrors = {
+  nombre?: string;
+  email?: string;
+  password?: string;
+  confirm?: string;
+};
 
 export default function RegistroUsuario() {
   const nav = useNavigate();
@@ -11,34 +18,105 @@ export default function RegistroUsuario() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
 
+  const [errores, setErrores] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 👁 Estados del ojo (idénticos al login)
   const [showPass, setShowPass] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
+  // Solo letras (incluye acentos/ñ/ü) y espacios
+  const nombreRegex = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]+$/;
+
+  // Normaliza espacios: evita "  Juan   Perez "
+  function normalizarNombre(v: string) {
+    return v.normalize("NFKC").replace(/\s+/g, " ").trim();
+  }
+
+  // ---------- Validación local ----------
+  function validarLocal(): FieldErrors {
+    const e: FieldErrors = {};
+    const nombreTrim = normalizarNombre(nombre);
+
+    if (nombreTrim.length > 0 && nombreTrim.length < 3) {
+      e.nombre = "El nombre debe tener al menos 3 caracteres";
+    } else if (nombreTrim.length > 0 && !nombreRegex.test(nombreTrim)) {
+      e.nombre = "El nombre solo puede contener letras y espacios";
+    }
+
+    if (email.trim().length > 0 && !/\S+@\S+\.\S+/.test(email)) {
+      e.email = "Formato de correo inválido";
+    }
+
+    if (password.length > 0 && password.length < 8) {
+      e.password = "La contraseña debe tener al menos 8 caracteres";
+    }
+
+    if (confirm.length > 0 && password !== confirm) {
+      e.confirm = "No coincide con la contraseña";
+    }
+
+    return e;
+  }
+
+  // ---------- Debounce para backend ----------
+  const debouncedPayload = useMemo(
+    () => ({
+      nombre: normalizarNombre(nombre),
+      email: email.trim(),
+      password,
+    }),
+    [nombre, email, password]
+  );
+
+  useEffect(() => {
+    setError(null);
+    setSuccess(null);
+
+    // 1) valida local primero
+    const localErrs = validarLocal();
+    setErrores(localErrs);
+
+    // si hay errores locales, no consultes backend
+    if (Object.keys(localErrs).length > 0) return;
+
+    // 2) valida backend si pasó local
+    const t = setTimeout(async () => {
+      try {
+        const res = await validarUsuario(debouncedPayload);
+        if (res.data?.ok) {
+          setErrores({});
+        } else {
+          setErrores(res.data?.errores || {});
+        }
+      } catch {
+        console.warn("validarUsuario() falló, usando local");
+      }
+    }, 400);
+
+    return () => clearTimeout(t);
+  }, [debouncedPayload]);
+
+  // ---------- Submit ----------
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    // Validaciones
-    if (nombre.trim().length < 2)
-      return setError("El nombre debe tener al menos 2 caracteres");
-    if (!/\S+@\S+\.\S+/.test(email))
-      return setError("Formato de correo electrónico inválido");
-    if (password.length < 8)
-      return setError("La contraseña debe tener al menos 8 caracteres");
-    if (password !== confirm)
-      return setError("Las contraseñas no coinciden");
+    const localErrs = validarLocal();
+    if (Object.keys(localErrs).length > 0) {
+      setErrores(localErrs);
+      return;
+    }
+
+    if (Object.keys(errores).length > 0) return;
 
     try {
       setLoading(true);
 
       const res = await crearUsuario(
-        nombre.trim(),
+        normalizarNombre(nombre),
         email.trim(),
         password,
         "lector"
@@ -48,18 +126,13 @@ export default function RegistroUsuario() {
         throw new Error(res?.data?.mensaje || "Error al registrar usuario");
       }
 
-      setSuccess("✅ Registro exitoso. Redirigiendo al inicio de sesión...");
+      setSuccess("Registro exitoso. Redirigiendo al inicio de sesión...");
       setTimeout(() => nav("/login"), 2000);
     } catch (err: any) {
-      console.error("⚠️ Error al registrar:", err);
-
       const msg =
         err?.response?.data?.mensaje ||
-        err?.data?.mensaje ||
         err?.response?.data?.error ||
-        err?.mensaje ||
         err?.message ||
-        (typeof err === "string" ? err : null) ||
         "Error al registrar usuario";
 
       setError(msg);
@@ -99,11 +172,23 @@ export default function RegistroUsuario() {
             <input
               type="text"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              className="mt-1 w-full border rounded-md px-3 py-2"
+              onChange={(e) => {
+                // filtra en vivo: solo letras y espacios
+                const limpio = e.target.value.replace(
+                  /[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ\s]/g,
+                  ""
+                );
+                setNombre(limpio);
+              }}
+              className={`mt-1 w-full border rounded-md px-3 py-2 ${
+                errores.nombre ? "border-red-400" : ""
+              }`}
               placeholder="Ej. Ana Pérez"
               required
             />
+            {errores.nombre && (
+              <p className="text-xs text-red-600 mt-1">{errores.nombre}</p>
+            )}
           </label>
 
           {/* Email */}
@@ -113,10 +198,15 @@ export default function RegistroUsuario() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full border rounded-md px-3 py-2"
+              className={`mt-1 w-full border rounded-md px-3 py-2 ${
+                errores.email ? "border-red-400" : ""
+              }`}
               placeholder="ejemplo@correo.com"
               required
             />
+            {errores.email && (
+              <p className="text-xs text-red-600 mt-1">{errores.email}</p>
+            )}
           </label>
 
           {/* Contraseña */}
@@ -128,19 +218,22 @@ export default function RegistroUsuario() {
                 type={showPass ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full border rounded-md px-3 py-2 pr-10"
+                className={`mt-1 w-full border rounded-md px-3 py-2 pr-10 ${
+                  errores.password ? "border-red-400" : ""
+                }`}
                 placeholder="Mínimo 8 caracteres"
                 required
               />
 
-              {/* Icono ojo */}
+              {/* Ojo original */}
               <button
                 type="button"
                 onClick={() => setShowPass((v) => !v)}
                 className="absolute right-3 top-3 text-slate-600 hover:text-slate-800 focus:outline-none"
+                aria-label="Mostrar u ocultar contraseña"
               >
                 {showPass ? (
-                  // 👁 Ojo abierto
+                  // Ojo abierto
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -162,7 +255,7 @@ export default function RegistroUsuario() {
                     />
                   </svg>
                 ) : (
-                  // 👁‍🗨 Ojo cerrado
+                  // Ojo cerrado
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     className="h-5 w-5"
@@ -180,6 +273,10 @@ export default function RegistroUsuario() {
                 )}
               </button>
             </div>
+
+            {errores.password && (
+              <p className="text-xs text-red-600 mt-1">{errores.password}</p>
+            )}
           </label>
 
           {/* Confirmar contraseña */}
@@ -191,16 +288,19 @@ export default function RegistroUsuario() {
                 type={showConfirm ? "text" : "password"}
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className="mt-1 w-full border rounded-md px-3 py-2 pr-10"
+                className={`mt-1 w-full border rounded-md px-3 py-2 pr-10 ${
+                  errores.confirm ? "border-red-400" : ""
+                }`}
                 placeholder="Repite tu contraseña"
                 required
               />
 
-              {/* Icono ojo */}
+              {/* Ojo original */}
               <button
                 type="button"
                 onClick={() => setShowConfirm((v) => !v)}
                 className="absolute right-3 top-3 text-slate-600 hover:text-slate-800 focus:outline-none"
+                aria-label="Mostrar u ocultar confirmación"
               >
                 {showConfirm ? (
                   <svg
@@ -241,14 +341,18 @@ export default function RegistroUsuario() {
                 )}
               </button>
             </div>
+
+            {errores.confirm && (
+              <p className="text-xs text-red-600 mt-1">{errores.confirm}</p>
+            )}
           </label>
 
           {/* Botón */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || Object.keys(errores).length > 0}
             className={`w-full py-2 rounded-md text-white font-medium transition ${
-              loading
+              loading || Object.keys(errores).length > 0
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-indigo-600 hover:bg-indigo-700"
             }`}
@@ -258,9 +362,9 @@ export default function RegistroUsuario() {
 
           <p className="text-center text-sm text-gray-600 mt-4">
             ¿Ya tienes una cuenta?{" "}
-            <a href="/login" className="text-indigo-600 hover:underline">
+            <Link to="/login" className="text-indigo-600 hover:underline">
               Inicia sesión
-            </a>
+            </Link>
           </p>
         </form>
       </div>

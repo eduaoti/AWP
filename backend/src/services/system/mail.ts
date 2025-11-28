@@ -2,7 +2,7 @@
 import { Resend } from "resend";
 
 const apiKey = process.env.RESEND_API_KEY;
-const from = process.env.MAIL_FROM || "AWP <onboarding@resend.dev>";
+const from = process.env.MAIL_FROM || "AWP <no-reply@awpapp.shop>";
 
 if (!apiKey) {
   console.warn("[MAIL] Falta RESEND_API_KEY — no se podrán enviar correos.");
