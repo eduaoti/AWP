@@ -258,9 +258,14 @@ const [, setMetaMov] = useState<MovimientosProductoMeta | null>(null);
           </div>
 
           <div className="flex items-end">
-            <Button type="submit" className="w-full bg-indigo-600 text-white">
-              {loadingMov || loadingVentas ? "Consultando..." : "Consultar"}
-            </Button>
+       <Button
+  type="submit"
+  className="w-full bg-indigo-600 text-white"
+  disabled={!productoClave.trim()}   // ⬅️ DESACTIVADO SI NO HAY CLAVE
+>
+  {loadingMov || loadingVentas ? "Consultando..." : "Consultar"}
+</Button>
+
           </div>
         </form>
 
