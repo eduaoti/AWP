@@ -66,7 +66,7 @@ export const CreateProductoSchema = z
     clave: Clave,
     nombre: Nombre,
     unidad: alphaUnidad,
-    descripcion: Descripcion,
+   descripcion: Descripcion.optional(),
     categoria: alphaCategoria,
     precio: positiveMoney("precio"),
     stock_minimo: nonNegativeInt("stock_minimo"),
@@ -104,7 +104,8 @@ export const UpdateProductoSchema = z
   .object({
     nombre: Nombre.optional(),
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion, // ya es optional arriba
+descripcion: Descripcion.optional(),
+ // ya es optional arriba
     categoria: alphaCategoria.optional(),
     precio: positiveMoney("precio").optional(),
     stock_minimo: nonNegativeInt("stock_minimo").optional(),
@@ -151,7 +152,7 @@ export const UpdatePorClaveSchema = z
     clave: Clave, // no se permite cambiar aquí
     nombre: Nombre.optional(),
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion,
+   descripcion: Descripcion.optional(),
     categoria: alphaCategoria.optional(),
     precio: positiveMoney("precio").optional(),
     stock_minimo: nonNegativeInt("stock_minimo").optional(),
@@ -201,7 +202,7 @@ export const UpdatePorNombreSchema = z
     nombre: Nombre,
     clave: Clave.optional(), // permitido aquí
     unidad: alphaUnidad.optional(),
-    descripcion: Descripcion,
+    descripcion: Descripcion.optional(),
     categoria: alphaCategoria.optional(),
     precio: positiveMoney("precio").optional(),
     stock_minimo: nonNegativeInt("stock_minimo").optional(),
