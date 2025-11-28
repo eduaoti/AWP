@@ -11,6 +11,27 @@ import {
   type Categoria,
 } from "../api/categorias";
 
+/* ===========================================================
+   Validaciones
+   =========================================================== */
+
+function validarNombreCategoria(v: string) {
+  const val = v.trim();
+  if (!val) return "El nombre es obligatorio";
+  if (val.length < 3) return "Debe tener al menos 3 caracteres";
+  if (val.length > 40) return "No debe exceder 40 caracteres";
+  if (!/^[A-Za-z0-9 ]+$/.test(val))
+    return "Solo se permiten letras, números y espacios (sin caracteres especiales)";
+  return "";
+}
+
+function validarDescripcionCategoria(v: string) {
+  const val = v.trim();
+  if (!val) return "";
+  if (val.length > 120) return "La descripción no debe exceder 120 caracteres";
+  return "";
+}
+
 export default function Categorias() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [editing, setEditing] = useState<Categoria | null>(null);
@@ -18,6 +39,11 @@ export default function Categorias() {
   // Campos del formulario
   const [nombre, setNombre] = useState("");
   const [descripcion, setDescripcion] = useState("");
+
+  // Errores por campo
+  const [errors, setErrors] = useState<{ nombre?: string; descripcion?: string }>(
+    {}
+  );
 
   // UI
   const [msg, setMsg] = useState<string | null>(null);
@@ -49,6 +75,21 @@ export default function Categorias() {
     setMsg(null);
     setErr(null);
     setLoading(true);
+
+    // Validar antes de mandar al backend
+    const errNombre = validarNombreCategoria(nombre);
+    const errDesc = validarDescripcionCategoria(descripcion);
+
+    const nuevosErrores: { nombre?: string; descripcion?: string } = {};
+    if (errNombre) nuevosErrores.nombre = errNombre;
+    if (errDesc) nuevosErrores.descripcion = errDesc;
+
+    setErrors(nuevosErrores);
+
+    if (Object.keys(nuevosErrores).length > 0) {
+      setLoading(false);
+      return;
+    }
 
     try {
       if (editing) {
@@ -82,6 +123,11 @@ export default function Categorias() {
     setEditing(cat);
     setNombre(cat.nombre);
     setDescripcion(cat.descripcion || "");
+    // revalidar al cargar en edición
+    setErrors({
+      nombre: validarNombreCategoria(cat.nombre),
+      descripcion: validarDescripcionCategoria(cat.descripcion || ""),
+    });
   }
 
   async function handleDelete(cat: Categoria) {
@@ -98,7 +144,11 @@ export default function Categorias() {
   function resetForm() {
     setNombre("");
     setDescripcion("");
+    setErrors({});
   }
+
+  const formInvalido =
+    !!errors.nombre || !!errors.descripcion || !nombre.trim() || loading;
 
   /* ===========================================================
      Render UI
@@ -131,22 +181,60 @@ export default function Categorias() {
           onSubmit={onSubmit}
           className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white p-4 rounded-xl shadow-sm border"
         >
-          <TextField
-            label="Nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            required
-          />
-          <TextField
-            label="Descripción"
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-          />
+          {/* Nombre */}
+          <div>
+            <TextField
+              label="Nombre"
+              value={nombre}
+              maxLength={40}
+              onChange={(e) => {
+                const v = e.target.value
+                  .replace(/[^a-zA-Z0-9 ]/g, "") // solo letras, números y espacio
+                  .slice(0, 40); // máximo 40
+                setNombre(v);
+                setErrors((prev) => ({
+                  ...prev,
+                  nombre: validarNombreCategoria(v),
+                }));
+              }}
+              required
+            />
+            {errors.nombre && (
+              <p className="text-red-600 text-xs mt-1">{errors.nombre}</p>
+            )}
+          </div>
+
+          {/* Descripción */}
+          <div>
+            <TextField
+              label="Descripción"
+              value={descripcion}
+              maxLength={120}
+              onChange={(e) => {
+                const v = e.target.value.slice(0, 120); // solo limitamos por longitud
+                setDescripcion(v);
+                setErrors((prev) => ({
+                  ...prev,
+                  descripcion: validarDescripcionCategoria(v),
+                }));
+              }}
+            />
+            {errors.descripcion && (
+              <p className="text-red-600 text-xs mt-1">
+                {errors.descripcion}
+              </p>
+            )}
+          </div>
 
           <div className="md:col-span-2 flex gap-2 mt-2">
             <Button
-              disabled={loading}
+              disabled={formInvalido}
               className="bg-indigo-600 text-white px-6"
+              title={
+                formInvalido
+                  ? "Corrige los errores antes de guardar"
+                  : undefined
+              }
             >
               {loading
                 ? "Procesando…"

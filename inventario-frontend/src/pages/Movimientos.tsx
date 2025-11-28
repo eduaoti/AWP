@@ -12,6 +12,11 @@ import type {
   RegistrarMovimientoPayload,
 } from "../api/movimientos";
 
+// ==========================
+// Reglas para clave de producto
+// ==========================
+const CLAVE_RE = /^[A-Za-z0-9]{2,8}$/;
+
 const emptyForm: RegistrarMovimientoPayload = {
   entrada: true,
   producto_clave: "",
@@ -20,13 +25,30 @@ const emptyForm: RegistrarMovimientoPayload = {
   responsable: "",
 };
 
+type FieldErrors = {
+  producto_clave?: string;
+  cantidad?: string;
+  documento?: string;
+  responsable?: string;
+  proveedor_id?: string;
+  cliente_id?: string;
+};
+
+// bloquear teclas que permiten flotantes o exponentes
+const blockNonIntegerKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (["e", "E", "+", "-", "."].includes(e.key)) e.preventDefault();
+};
+
 export default function Movimientos() {
   const [items, setItems] = useState<Movimiento[]>([]);
   const [meta, setMeta] = useState<MovimientosMeta | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // error general (solo backend)
   const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState<RegistrarMovimientoPayload>(emptyForm);
+  const [formErrors, setFormErrors] = useState<FieldErrors>({});
   const [showForm, setShowForm] = useState(false);
 
   // ==========================
@@ -52,45 +74,115 @@ export default function Movimientos() {
   }, []);
 
   // ==========================
+  // Validación del formulario
+  // ==========================
+  function validarForm(f: RegistrarMovimientoPayload): FieldErrors {
+    const errs: FieldErrors = {};
+
+    const clave = (f.producto_clave || "").trim();
+    if (!clave) {
+      errs.producto_clave = "La clave de producto es obligatoria.";
+    } else if (!CLAVE_RE.test(clave)) {
+      errs.producto_clave =
+        "Debe tener entre 2 y 8 caracteres y solo letras o números.";
+    }
+
+    if (!f.cantidad || Number(f.cantidad) <= 0) {
+      errs.cantidad = "La cantidad debe ser mayor a 0.";
+    }
+
+    const doc = (f.documento ?? "").trim();
+    if (!doc) {
+      errs.documento = "El documento es obligatorio.";
+    } else {
+      if (doc.length < 3) {
+        errs.documento = "El documento debe tener al menos 3 caracteres.";
+      } else if (doc.length > 40) {
+        errs.documento = "El documento no debe exceder 40 caracteres.";
+      } else if (!/^[A-Za-z0-9 ]+$/.test(doc)) {
+        errs.documento =
+          "El documento solo puede contener letras, números y espacios.";
+      }
+    }
+
+    const resp = (f.responsable ?? "").trim();
+    if (!resp) {
+      errs.responsable = "El responsable es obligatorio.";
+    } else {
+      if (resp.length < 3) {
+        errs.responsable = "El responsable debe tener al menos 3 caracteres.";
+      } else if (resp.length > 20) {
+        errs.responsable = "El responsable no debe exceder 20 caracteres.";
+      } else if (!/^[A-Za-z ]+$/.test(resp)) {
+        errs.responsable =
+          "El responsable solo puede contener letras y espacios (sin números ni símbolos).";
+      }
+    }
+
+    if (f.entrada) {
+      if (!f.proveedor_id || Number(f.proveedor_id) <= 0) {
+        errs.proveedor_id =
+          "El ID de proveedor es obligatorio y debe ser numérico.";
+      }
+    } else {
+      if (!f.cliente_id || Number(f.cliente_id) <= 0) {
+        errs.cliente_id =
+          "El ID de cliente es obligatorio y debe ser numérico.";
+      }
+    }
+
+    return errs;
+  }
+
+  // ==========================
   // Handlers formulario
   // ==========================
   function openCreate() {
     setForm(emptyForm);
+    setFormErrors({});
+    setError(null);
     setShowForm(true);
   }
 
   function closeForm() {
     setShowForm(false);
     setForm(emptyForm);
+    setFormErrors({});
+    setError(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+
+    const formNormalizado: RegistrarMovimientoPayload = {
+      ...form,
+      producto_clave: (form.producto_clave || "").trim(),
+    };
+
+    const errs = validarForm(formNormalizado);
+    setFormErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      // hay errores, no mandamos al backend
+      return;
+    }
+
     try {
       setLoading(true);
-      setError(null);
-
-      if (!form.producto_clave.trim()) {
-        setError("La clave de producto es obligatoria.");
-        return;
-      }
-      if (!form.cantidad || Number(form.cantidad) <= 0) {
-        setError("La cantidad debe ser mayor a 0.");
-        return;
-      }
 
       const payload: RegistrarMovimientoPayload = {
-        ...form,
-        cantidad: Number(form.cantidad),
-        proveedor_id: form.entrada
-          ? form.proveedor_id
-            ? Number(form.proveedor_id)
+        ...formNormalizado,
+        cantidad: Number(formNormalizado.cantidad),
+        proveedor_id: formNormalizado.entrada
+          ? formNormalizado.proveedor_id
+            ? Number(formNormalizado.proveedor_id)
             : undefined
           : undefined,
-        cliente_id: form.entrada
+        cliente_id: formNormalizado.entrada
           ? undefined
-          : form.cliente_id
-          ? Number(form.cliente_id)
+          : formNormalizado.cliente_id
+          ? Number(formNormalizado.cliente_id)
           : undefined,
       };
 
@@ -123,7 +215,6 @@ export default function Movimientos() {
 
   function goNext() {
     if (!meta) return;
-    // Heurística: si vino la página llena (count === limit), asumimos que hay más
     if (meta.count < meta.limit) return;
     const nextOffset = meta.offset + meta.limit;
     loadMovimientos(nextOffset);
@@ -158,7 +249,7 @@ export default function Movimientos() {
           </Button>
         </header>
 
-        {error && (
+        {error && !showForm && (
           <div className="mb-4 rounded-md bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">
             {error}
           </div>
@@ -233,7 +324,7 @@ export default function Movimientos() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-2 font-semibold">{m.cantidad}</td>
+<td className="px-4 py-2 font-semibold">{Number(m.cantidad)}</td>
                     <td className="px-4 py-2">
                       {m.documento ? (
                         m.documento
@@ -268,7 +359,6 @@ export default function Movimientos() {
             </table>
           </div>
 
-          {/* Paginación similar a Almacenes */}
           {meta && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-xs text-slate-600">
               <span>
@@ -304,6 +394,12 @@ export default function Movimientos() {
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h2 className="text-lg font-bold mb-4">Nuevo movimiento</h2>
 
+            {error && (
+              <div className="mb-3 rounded-md bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                {error}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Tipo de movimiento */}
               <div>
@@ -317,14 +413,19 @@ export default function Movimientos() {
                       name="tipo"
                       value="entrada"
                       checked={form.entrada === true}
-                      onChange={() =>
+                      onChange={() => {
                         setForm((f) => ({
                           ...f,
                           entrada: true,
                           proveedor_id: f.proveedor_id,
                           cliente_id: undefined,
-                        }))
-                      }
+                        }));
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          proveedor_id: undefined,
+                          cliente_id: undefined,
+                        }));
+                      }}
                     />
                     <span>Entrada</span>
                   </label>
@@ -334,14 +435,19 @@ export default function Movimientos() {
                       name="tipo"
                       value="salida"
                       checked={form.entrada === false}
-                      onChange={() =>
+                      onChange={() => {
                         setForm((f) => ({
                           ...f,
                           entrada: false,
                           proveedor_id: undefined,
                           cliente_id: f.cliente_id,
-                        }))
-                      }
+                        }));
+                        setFormErrors((prev) => ({
+                          ...prev,
+                          proveedor_id: undefined,
+                          cliente_id: undefined,
+                        }));
+                      }}
                     />
                     <span>Salida</span>
                   </label>
@@ -357,15 +463,33 @@ export default function Movimientos() {
                   type="text"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.producto_clave}
-                  onChange={(e) =>
+                  maxLength={8}
+                  onChange={(e) => {
+                    const limpio = e.target.value
+                      .replace(/[^a-zA-Z0-9]/g, "")
+                      .toUpperCase()
+                      .slice(0, 8);
                     setForm((f) => ({
                       ...f,
-                      producto_clave: e.target.value,
-                    }))
-                  }
-                  placeholder="Ej: P-0001"
+                      producto_clave: limpio,
+                    }));
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      producto_clave: undefined,
+                    }));
+                  }}
+                  placeholder="Ej: PLA0001"
                   required
                 />
+                <p className="text-xs text-slate-500 mt-1">
+                  Solo letras y números, entre 2 y 8 caracteres (sin espacios ni
+                  símbolos).
+                </p>
+                {formErrors.producto_clave && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.producto_clave}
+                  </p>
+                )}
               </div>
 
               {/* Cantidad */}
@@ -377,77 +501,128 @@ export default function Movimientos() {
                   type="number"
                   min={1}
                   step={1}
+                  onKeyDown={blockNonIntegerKey}
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  value={form.cantidad}
-                  onChange={(e) =>
+                  value={form.cantidad || ""}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "");
+                    const num = digits ? Number(digits) : 0;
                     setForm((f) => ({
                       ...f,
-                      cantidad: Number(e.target.value),
-                    }))
-                  }
+                      cantidad: num,
+                    }));
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      cantidad: undefined,
+                    }));
+                  }}
                   required
                 />
+                {formErrors.cantidad && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.cantidad}
+                  </p>
+                )}
               </div>
 
-              {/* Documento (opcional) */}
+              {/* Documento */}
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Documento (opcional)
+                  Documento <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.documento ?? ""}
-                  onChange={(e) =>
+                  maxLength={40}
+                  onChange={(e) => {
+                    const v = e.target.value
+                      .replace(/[^a-zA-Z0-9 ]/g, "")
+                      .slice(0, 40);
                     setForm((f) => ({
                       ...f,
-                      documento: e.target.value || "",
-                    }))
-                  }
+                      documento: v,
+                    }));
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      documento: undefined,
+                    }));
+                  }}
                   placeholder="Factura, remisión, nota..."
+                  required
                 />
+                {formErrors.documento && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.documento}
+                  </p>
+                )}
               </div>
 
-              {/* Responsable (opcional) */}
+              {/* Responsable */}
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Responsable (opcional)
+                  Responsable <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.responsable ?? ""}
-                  onChange={(e) =>
+                  maxLength={20}
+                  onChange={(e) => {
+                    const v = e.target.value
+                      .replace(/[^a-zA-Z ]/g, "")
+                      .slice(0, 20);
                     setForm((f) => ({
                       ...f,
-                      responsable: e.target.value || "",
-                    }))
-                  }
+                      responsable: v,
+                    }));
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      responsable: undefined,
+                    }));
+                  }}
                   placeholder="Nombre del responsable"
+                  required
                 />
+                {formErrors.responsable && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.responsable}
+                  </p>
+                )}
               </div>
 
               {/* Proveedor / Cliente según tipo */}
               {form.entrada ? (
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    ID de proveedor (opcional)
+                    ID de proveedor <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
                     min={1}
+                    onKeyDown={blockNonIntegerKey}
                     className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     value={form.proveedor_id ?? ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      const num = digits ? Number(digits) : undefined;
                       setForm((f) => ({
                         ...f,
-                        proveedor_id: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      }))
-                    }
+                        proveedor_id: num,
+                      }));
+                      setFormErrors((prev) => ({
+                        ...prev,
+                        proveedor_id: undefined,
+                      }));
+                    }}
                     placeholder="ID numérico del proveedor"
+                    required
                   />
+                  {formErrors.proveedor_id && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {formErrors.proveedor_id}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div>
@@ -457,23 +632,33 @@ export default function Movimientos() {
                   <input
                     type="number"
                     min={1}
+                    onKeyDown={blockNonIntegerKey}
                     className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     value={form.cliente_id ?? ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      const num = digits ? Number(digits) : undefined;
                       setForm((f) => ({
                         ...f,
-                        cliente_id: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      }))
-                    }
+                        cliente_id: num,
+                      }));
+                      setFormErrors((prev) => ({
+                        ...prev,
+                        cliente_id: undefined,
+                      }));
+                    }}
                     placeholder="ID numérico del cliente"
                     required
                   />
+                  {formErrors.cliente_id && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {formErrors.cliente_id}
+                    </p>
+                  )}
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-endрать gap-3 pt-2">
                 <Button
                   type="button"
                   onClick={closeForm}

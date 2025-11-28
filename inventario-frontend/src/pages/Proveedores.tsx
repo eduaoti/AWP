@@ -20,13 +20,67 @@ const emptyForm = {
   contacto: "",
 };
 
+type FieldErrors = {
+  nombre?: string;
+  telefono?: string;
+  contacto?: string;
+};
+
+// Nombre: letras, números y espacios
+const NOMBRE_RE = /^[A-Za-z0-9 ]+$/;
+// Contacto: solo letras y espacios
+const CONTACTO_RE = /^[A-Za-z ]+$/;
+
+// Teléfono (patrones auxiliares)
+const TEL_DIGITS_ONLY = /^\d{7,15}$/;         // 7–15 dígitos
+const TEL_INTL = /^\+[1-9]\d{7,14}$/;         // + y 8–15 dígitos en total
+const TEL_MX_INTL = /^\+52\d{10}$/;           // +52 y 10 dígitos
+const TEL_MX_NATIONAL = /^\d{10}$/;           // 10 dígitos (ej: 428 + 7 números)
+
+function validarTelefono(raw: string): string {
+  const v = raw.trim();
+
+  if (!v) return "El teléfono es obligatorio.";
+
+  // Con código de país (formato internacional)
+  if (v.startsWith("+")) {
+    if (!TEL_INTL.test(v)) {
+      return "Teléfono internacional inválido. Ejemplo: +521234567890.";
+    }
+
+    // Caso particular: México
+    if (v.startsWith("+52") && !TEL_MX_INTL.test(v)) {
+      return "Para México (+52) el número debe tener 10 dígitos después del prefijo.";
+    }
+
+    return "";
+  }
+
+  // Solo dígitos (formato nacional)
+  if (!TEL_DIGITS_ONLY.test(v)) {
+    return "El teléfono debe tener entre 7 y 15 dígitos (solo números).";
+  }
+
+  // Caso típico de México: 10 dígitos (LADA + número)
+  if (TEL_MX_NATIONAL.test(v)) {
+    return "";
+  }
+
+  // Otros países con 7-15 dígitos se aceptan como nacionales
+  return "";
+}
+
 export default function Proveedores() {
   const [items, setItems] = useState<Proveedor[]>([]);
   const [meta, setMeta] = useState<ProveedoresMeta | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // error general (backend)
   const [error, setError] = useState<string | null>(null);
 
   const [form, setForm] = useState(emptyForm);
+  const [formErrors, setFormErrors] = useState<FieldErrors>({});
+
   const [mode, setMode] = useState<FormMode>("create");
   const [showForm, setShowForm] = useState(false);
 
@@ -59,11 +113,51 @@ export default function Proveedores() {
   }, []);
 
   // ==========================
+  // Validación
+  // ==========================
+  function validarForm(f: typeof form): FieldErrors {
+    const errs: FieldErrors = {};
+
+    const nombre = f.nombre.trim();
+    if (!nombre) {
+      errs.nombre = "El nombre es obligatorio.";
+    } else if (nombre.length < 3) {
+      errs.nombre = "El nombre debe tener al menos 3 caracteres.";
+    } else if (nombre.length > 40) {
+      errs.nombre = "El nombre no debe exceder 40 caracteres.";
+    } else if (!NOMBRE_RE.test(nombre)) {
+      errs.nombre =
+        "El nombre solo puede contener letras, números y espacios (sin símbolos).";
+    }
+
+    const telMsg = validarTelefono(f.telefono);
+    if (telMsg) {
+      errs.telefono = telMsg;
+    }
+
+    const contacto = f.contacto.trim();
+    if (!contacto) {
+      errs.contacto = "El contacto es obligatorio.";
+    } else if (contacto.length < 3) {
+      errs.contacto = "El contacto debe tener al menos 3 caracteres.";
+    } else if (contacto.length > 20) {
+      errs.contacto = "El contacto no debe exceder 20 caracteres.";
+    } else if (!CONTACTO_RE.test(contacto)) {
+      errs.contacto =
+        "El contacto solo puede contener letras y espacios (sin números ni símbolos).";
+    }
+
+    return errs;
+  }
+
+  // ==========================
   // Handlers formulario
   // ==========================
   function openCreate() {
     setMode("create");
     setForm(emptyForm);
+    setFormErrors({});
+    setError(null);
     setShowForm(true);
   }
 
@@ -75,37 +169,50 @@ export default function Proveedores() {
       telefono: p.telefono ?? "",
       contacto: p.contacto ?? "",
     });
+    setFormErrors({});
+    setError(null);
     setShowForm(true);
   }
 
   function closeForm() {
     setShowForm(false);
     setForm(emptyForm);
+    setFormErrors({});
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const normalizado = {
+      ...form,
+      nombre: form.nombre.trim(),
+      telefono: form.telefono.trim(),
+      contacto: form.contacto.trim(),
+    };
+
+    const errs = validarForm(normalizado);
+    setFormErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      return; // no llamar al backend si hay errores de front
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      if (!form.nombre.trim()) {
-        setError("El nombre es obligatorio.");
-        return;
-      }
-
       if (mode === "create") {
         await crearProveedor({
-          nombre: form.nombre,
-          telefono: form.telefono || undefined,
-          contacto: form.contacto || undefined,
+          nombre: normalizado.nombre,
+          telefono: normalizado.telefono,
+          contacto: normalizado.contacto,
         });
       } else {
         await actualizarProveedor({
-          id: form.id,
-          nombre: form.nombre,
-          telefono: form.telefono || undefined,
-          contacto: form.contacto || undefined,
+          id: normalizado.id,
+          nombre: normalizado.nombre,
+          telefono: normalizado.telefono,
+          contacto: normalizado.contacto,
         });
       }
 
@@ -180,12 +287,12 @@ export default function Proveedores() {
             </p>
           </div>
 
-          <Button
-            onClick={openCreate}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700"
-          >
-            Nuevo proveedor
-          </Button>
+        <Button
+          onClick={openCreate}
+          className="bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:bg-indigo-700"
+        >
+          Nuevo proveedor
+        </Button>
         </header>
 
         {error && (
@@ -316,6 +423,7 @@ export default function Proveedores() {
             </h2>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Nombre */}
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Nombre <span className="text-red-500">*</span>
@@ -324,40 +432,84 @@ export default function Proveedores() {
                   type="text"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.nombre}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, nombre: e.target.value }))
-                  }
+                  maxLength={40}
+                  onChange={(e) => {
+                    const val = e.target.value
+                      .replace(/[^A-Za-z0-9 ]/g, "")
+                      .slice(0, 40);
+                    setForm((f) => ({ ...f, nombre: val }));
+                    setFormErrors((prev) => ({ ...prev, nombre: undefined }));
+                  }}
                   required
                 />
+                {formErrors.nombre && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.nombre}
+                  </p>
+                )}
               </div>
 
+              {/* Teléfono */}
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Teléfono (opcional)
+                  Teléfono <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="tel"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.telefono}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, telefono: e.target.value }))
-                  }
-                  placeholder="Solo dígitos"
+                  maxLength={16} // + y hasta 15 dígitos
+                  onChange={(e) => {
+                    let v = e.target.value;
+
+                    // Permitir solo + y dígitos
+                    v = v.replace(/[^0-9+]/g, "");
+
+                    // Solo un '+' y solo al inicio
+                    if (v.includes("+")) {
+                      const parts = v.split("+");
+                      v = "+" + parts.join("").replace(/\+/g, "");
+                    }
+
+                    v = v.slice(0, 16);
+
+                    setForm((f) => ({ ...f, telefono: v }));
+                    setFormErrors((prev) => ({ ...prev, telefono: undefined }));
+                  }}
+                  placeholder="Ej: 4281234567 o +524281234567"
+                  required
                 />
+                {formErrors.telefono && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.telefono}
+                  </p>
+                )}
               </div>
 
+              {/* Contacto */}
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Contacto (opcional)
+                  Contacto <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   value={form.contacto}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, contacto: e.target.value }))
-                  }
+                  maxLength={20}
+                  onChange={(e) => {
+                    const val = e.target.value
+                      .replace(/[^A-Za-z ]/g, "")
+                      .slice(0, 20);
+                    setForm((f) => ({ ...f, contacto: val }));
+                    setFormErrors((prev) => ({ ...prev, contacto: undefined }));
+                  }}
+                  required
                 />
+                {formErrors.contacto && (
+                  <p className="text-xs text-red-600 mt-1">
+                    {formErrors.contacto}
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
