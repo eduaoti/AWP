@@ -208,6 +208,8 @@ export default function RegistroUsuario() {
         <form
           onSubmit={handleSubmit}
           className="w-full max-w-md bg-white shadow-lg rounded-xl p-6"
+          autoComplete="off"  // 🔧 evita que el navegador juegue raro
+          noValidate          // 🔧 desactiva validación nativa
         >
           <h2 className="text-2xl font-bold mb-4 text-center text-slate-800">
             Crear cuenta
@@ -237,6 +239,7 @@ export default function RegistroUsuario() {
               }`}
               placeholder="Ej. Ana Pérez"
               required
+              autoComplete="name"   // ✅ nombre real
             />
             {touched.nombre && errores.nombre && (
               <p className="text-xs text-red-600 mt-1">{errores.nombre}</p>
@@ -255,6 +258,7 @@ export default function RegistroUsuario() {
               }`}
               placeholder="ejemplo@correo.com"
               required
+              autoComplete="email"  // ✅ campo correo
             />
             {touched.email && errores.email && (
               <p className="text-xs text-red-600 mt-1">{errores.email}</p>
@@ -275,6 +279,7 @@ export default function RegistroUsuario() {
                 }`}
                 placeholder="Mínimo 8 caracteres, 1 mayúscula, 1 número, 1 carácter especial"
                 required
+                autoComplete="new-password"  // ✅ para registro
               />
 
               <button
@@ -342,6 +347,7 @@ export default function RegistroUsuario() {
                 }`}
                 placeholder="Repite tu contraseña"
                 required
+                autoComplete="new-password"  // ✅ también como nueva
               />
 
               <button
