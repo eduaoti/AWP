@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import PrivateNavbar from "../components/PrivateNavbar";
 import Button from "../components/Button";
 import TextField from "../components/TextField";
@@ -17,14 +17,17 @@ import { PlusCircle, Pencil, Trash2 } from "lucide-react";
 const BlockMinusAndExp = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (["-", "e", "E"].includes(e.key)) e.preventDefault();
 };
+
 const clampNonNegative = (v: string | number) => {
   const n = Number(v);
   return !isFinite(n) || n < 0 ? 0 : n;
 };
+
 const clampPositiveMoney = (v: string | number) => {
   const n = Number(v);
   return !isFinite(n) || n <= 0 ? 0.01 : Math.round(n * 100) / 100;
 };
+
 const parseBackendFieldMessage = (msg?: string) => {
   if (!msg) return null;
   const arrow = msg.split("→");
@@ -33,12 +36,58 @@ const parseBackendFieldMessage = (msg?: string) => {
   return null;
 };
 
+/* ──────────────── Validaciones FRONT (copiadas del BACK) ──────────────── */
+
+// regex exacto del backend:
+// /^[A-Za-z][A-Za-z0-9_-]{1,19}$/
+const CLAVE_RE = /^[A-Za-z][A-Za-z0-9_-]{1,19}$/;
+
+function validarClave(v: string) {
+  const val = v.trim();
+  if (!val) return "La clave es obligatoria";
+  if (val.length < 2) return "Debe tener al menos 2 caracteres";
+  if (val.length > 20) return "No debe exceder 20 caracteres";
+  if (!CLAVE_RE.test(val))
+    return "Debe iniciar con letra y solo usar letras, números, - o _";
+  return "";
+}
+
+function validarNombre(v: string, claveActual: string) {
+  const val = v.trim();
+  if (!val) return "El nombre es obligatorio";
+  if (val.length < 3) return "Debe tener al menos 3 caracteres";
+  if (/^[\d-]+$/.test(val))
+    return "Debe contener letras (no solo dígitos/guiones)";
+  if (val.toLowerCase() === claveActual.trim().toLowerCase())
+    return "No debe ser idéntico a la clave";
+  return "";
+}
+
+function validarPrecio(n: number) {
+  if (!isFinite(n) || n <= 0) return "El precio debe ser mayor a 0";
+  return "";
+}
+
+function validarStockMinimo(n: number) {
+  if (!isFinite(n) || n < 0) return "El stock mínimo no puede ser negativo";
+  return "";
+}
+
+function validarStockActual(n: number, min: number) {
+  if (!isFinite(n) || n < 0) return "El stock actual no puede ser negativo";
+  if (n < min) return "El stock actual no puede ser menor que el mínimo";
+  return "";
+}
+
 /* ──────────────── Componente ──────────────── */
 export default function Productos() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // ✅ bandera para NO mostrar nada al inicio
+  const [hasSearched, setHasSearched] = useState(false);
 
   // búsqueda y filtros
   const [busqueda, setBusqueda] = useState("");
@@ -73,12 +122,13 @@ export default function Productos() {
   const [unidad, setUnidad] = useState("pieza");
   const [stockMinimo, setStockMinimo] = useState(1);
   const [stock, setStock] = useState(0);
+
+  // errores por campo
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   /* ──────────────── Carga inicial ──────────────── */
   useEffect(() => {
     cargarCategorias();
-    cargarProductos();
   }, []);
 
   async function cargarCategorias() {
@@ -93,10 +143,12 @@ export default function Productos() {
   async function cargarProductos() {
     try {
       const { data } = await listarProductos();
-      const items = (data?.data?.items || data?.data || data || []).map((p: any) => ({
-        ...p,
-        precio: Number(p.precio) || 0,
-      }));
+      const items = (data?.data?.items || data?.data || data || []).map(
+        (p: any) => ({
+          ...p,
+          precio: Number(p.precio) || 0,
+        })
+      );
       setProductos(items);
     } catch {
       setErr("Error al cargar productos");
@@ -106,6 +158,8 @@ export default function Productos() {
   /* ──────────────── Buscar / Limpiar ──────────────── */
   async function onBuscar() {
     await cargarProductos();
+    setHasSearched(true);
+    setPagina(1);
   }
 
   function onLimpiar() {
@@ -115,56 +169,87 @@ export default function Productos() {
     setPrecioDesde("");
     setPrecioHasta("");
     setPagina(1);
-    cargarProductos();
+
+    setProductos([]);
+    setHasSearched(false);
   }
 
-  /* ──────────────── Validaciones ──────────────── */
-  function validarCampos() {
+  /* ──────────────── Validaciones tiempo real ──────────────── */
+  function validateAllRealtime(next?: Partial<{
+    clave: string;
+    nombre: string;
+    precio: number;
+    stockMinimo: number;
+    stock: number;
+  }>) {
+    const current = {
+      clave,
+      nombre,
+      precio,
+      stockMinimo,
+      stock,
+      ...next,
+    };
+
     const e: Record<string, string> = {};
-    if (!clave.trim()) e.clave = "La clave es obligatoria";
-    if (!nombre.trim()) e.nombre = "El nombre es obligatorio";
-    else if (nombre.trim().length < 3)
-      e.nombre = "nombre → Debe tener al menos 3 caracteres";
-    if (precio <= 0) e.precio = "precio → Debe ser mayor a 0";
-    if (stockMinimo < 0) e.stock_minimo = "El stock mínimo no puede ser negativo";
-    if (stock < 0) e.stock_actual = "El stock actual no puede ser negativo";
-    if (stock < stockMinimo)
-      e.stock_actual = "El stock actual no puede ser menor que el mínimo";
+    e.clave = validarClave(current.clave);
+    e.nombre = validarNombre(current.nombre, current.clave);
+    e.precio = validarPrecio(current.precio);
+    e.stock_minimo = validarStockMinimo(current.stockMinimo);
+    e.stock_actual = validarStockActual(current.stock, current.stockMinimo);
+
+    // limpia vacíos
+    Object.keys(e).forEach((k) => {
+      if (!e[k]) delete e[k];
+    });
+
     setErrors(e);
     return Object.keys(e).length === 0;
   }
+
+  // revalidar cada vez que cambias algo mientras el modal está abierto
+  useEffect(() => {
+    if (showCreate || showEdit) validateAllRealtime();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave, nombre, precio, stockMinimo, stock, showCreate, showEdit]);
+
+  const formOk = useMemo(() => Object.keys(errors).length === 0, [errors]);
 
   /* ──────────────── Crear ──────────────── */
   async function handleCrear(e: React.FormEvent) {
     e.preventDefault();
     setErrors({});
-    if (!validarCampos()) return;
+    if (!validateAllRealtime()) return;
 
     try {
       const resp = await crearProducto({
-        clave,
-        nombre,
+        clave: clave.trim(),
+        nombre: nombre.trim(),
         categoria,
         precio,
         unidad,
         stock_minimo: stockMinimo,
         stock_actual: stock,
       });
+
       const parsed = parseBackendFieldMessage(resp?.data?.mensaje);
       if (parsed) {
         setErrors({ [parsed.campo]: parsed.mensaje });
         return;
       }
+
       setMsg("Producto creado con éxito");
       setShowCreate(false);
       resetForm();
-      cargarProductos();
+      await cargarProductos();
+      setHasSearched(true);
     } catch (e: any) {
       const m =
         e?.response?.data?.mensaje ||
         e?.response?.data?.message ||
         e?.message ||
         "";
+
       const parsed = parseBackendFieldMessage(m);
       parsed ? setErrors({ [parsed.campo]: parsed.mensaje }) : setErr(m);
     }
@@ -187,27 +272,30 @@ export default function Productos() {
     e.preventDefault();
     if (!productoEdit) return;
     setErrors({});
-    if (!validarCampos()) return;
+    if (!validateAllRealtime()) return;
 
     try {
       await actualizarProducto(productoEdit.clave, {
-        nombre,
+        nombre: nombre.trim(),
         categoria,
         precio,
         unidad,
         stock_minimo: stockMinimo,
         stock_actual: stock,
       });
+
       setMsg("Producto actualizado correctamente");
       setShowEdit(false);
       resetForm();
-      cargarProductos();
+      await cargarProductos();
+      setHasSearched(true);
     } catch (e: any) {
       const m =
         e?.response?.data?.mensaje ||
         e?.response?.data?.message ||
         e?.message ||
         "";
+
       const parsed = parseBackendFieldMessage(m);
       parsed ? setErrors({ [parsed.campo]: parsed.mensaje }) : setErr(m);
     }
@@ -219,7 +307,8 @@ export default function Productos() {
     try {
       await eliminarProducto(p.clave);
       setMsg("Producto eliminado correctamente");
-      cargarProductos();
+      await cargarProductos();
+      setHasSearched(true);
     } catch (e: any) {
       const m =
         e?.response?.data?.mensaje ||
@@ -243,33 +332,54 @@ export default function Productos() {
   }
 
   /* ──────────────── Filtros + Paginación ──────────────── */
-  const productosFiltrados = productos.filter((p) => {
-    const coincideTexto =
-      !busqueda ||
-      p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-      p.clave.toLowerCase().includes(busqueda.toLowerCase());
-    const coincideCategoria = !filtroCategoria || p.categoria === filtroCategoria;
-    const coincideUnidad = !filtroUnidad || p.unidad === filtroUnidad;
-    const coincidePrecio =
-      (!precioDesde || p.precio >= precioDesde) &&
-      (!precioHasta || p.precio <= precioHasta);
+  const productosFiltrados = hasSearched
+    ? productos.filter((p) => {
+        const coincideTexto =
+          !busqueda ||
+          p.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+          p.clave.toLowerCase().includes(busqueda.toLowerCase());
 
-    return coincideTexto && coincideCategoria && coincideUnidad && coincidePrecio;
-  });
+        const coincideCategoria =
+          !filtroCategoria || p.categoria === filtroCategoria;
+
+        const coincideUnidad =
+          !filtroUnidad || p.unidad === filtroUnidad;
+
+        const coincidePrecio =
+          (!precioDesde || p.precio >= precioDesde) &&
+          (!precioHasta || p.precio <= precioHasta);
+
+        return (
+          coincideTexto &&
+          coincideCategoria &&
+          coincideUnidad &&
+          coincidePrecio
+        );
+      })
+    : [];
 
   const totalPaginas = Math.ceil(productosFiltrados.length / ITEMS_POR_PAGINA);
   const inicio = (pagina - 1) * ITEMS_POR_PAGINA;
-  const productosPagina = productosFiltrados.slice(inicio, inicio + ITEMS_POR_PAGINA);
+  const productosPagina = productosFiltrados.slice(
+    inicio,
+    inicio + ITEMS_POR_PAGINA
+  );
 
   /* ──────────────── Render ──────────────── */
   return (
     <div className="min-h-screen bg-gray-50">
       <PrivateNavbar />
       <main className="p-6">
-        <h1 className="text-2xl font-bold mb-6 text-slate-800">Gestión de Productos</h1>
+        <h1 className="text-2xl font-bold mb-6 text-slate-800">
+          Gestión de Productos
+        </h1>
 
-        {msg && <Toast message={msg} type="success" onClose={() => setMsg(null)} />}
-        {err && <Toast message={err} type="error" onClose={() => setErr(null)} />}
+        {msg && (
+          <Toast message={msg} type="success" onClose={() => setMsg(null)} />
+        )}
+        {err && (
+          <Toast message={err} type="error" onClose={() => setErr(null)} />
+        )}
 
         {/* 🔍 Filtros */}
         <div className="bg-white border p-4 rounded-lg mb-6 shadow-sm">
@@ -334,7 +444,9 @@ export default function Productos() {
                   step="0.01"
                   placeholder="Desde"
                   value={precioDesde}
-                  onChange={(e) => setPrecioDesde(clampNonNegative(e.target.value))}
+                  onChange={(e) =>
+                    setPrecioDesde(clampNonNegative(e.target.value))
+                  }
                   onKeyDown={BlockMinusAndExp}
                   className="w-1/2 border border-slate-300 rounded-lg px-2 py-1"
                 />
@@ -344,7 +456,9 @@ export default function Productos() {
                   step="0.01"
                   placeholder="Hasta"
                   value={precioHasta}
-                  onChange={(e) => setPrecioHasta(clampNonNegative(e.target.value))}
+                  onChange={(e) =>
+                    setPrecioHasta(clampNonNegative(e.target.value))
+                  }
                   onKeyDown={BlockMinusAndExp}
                   className="w-1/2 border border-slate-300 rounded-lg px-2 py-1"
                 />
@@ -353,10 +467,16 @@ export default function Productos() {
           </div>
 
           <div className="flex justify-end gap-2 mt-4">
-            <Button className="bg-blue-600 text-white px-4 py-2" onClick={onBuscar}>
+            <Button
+              className="bg-blue-600 text-white px-4 py-2"
+              onClick={onBuscar}
+            >
               Buscar
             </Button>
-            <Button className="bg-gray-500 text-white px-4 py-2" onClick={onLimpiar}>
+            <Button
+              className="bg-gray-500 text-white px-4 py-2"
+              onClick={onLimpiar}
+            >
               Limpiar
             </Button>
             <Button
@@ -412,6 +532,7 @@ export default function Productos() {
                   </td>
                 </tr>
               ))}
+
               {!productosPagina.length && (
                 <tr>
                   <td
@@ -429,7 +550,10 @@ export default function Productos() {
         {/* 🔢 Paginación */}
         {productosFiltrados.length > ITEMS_POR_PAGINA && (
           <div className="flex justify-center mt-4 gap-3 items-center">
-            <Button disabled={pagina === 1} onClick={() => setPagina(pagina - 1)}>
+            <Button
+              disabled={pagina === 1}
+              onClick={() => setPagina(pagina - 1)}
+            >
               ◀
             </Button>
             <span>
@@ -533,10 +657,14 @@ export default function Productos() {
                 type="number"
                 value={stockMinimo}
                 onKeyDown={BlockMinusAndExp}
-                onChange={(e) => setStockMinimo(clampNonNegative(e.target.value))}
+                onChange={(e) =>
+                  setStockMinimo(clampNonNegative(e.target.value))
+                }
               />
               {errors.stock_minimo && (
-                <p className="text-red-600 text-xs mt-1">{errors.stock_minimo}</p>
+                <p className="text-red-600 text-xs mt-1">
+                  {errors.stock_minimo}
+                </p>
               )}
             </div>
 
@@ -549,7 +677,9 @@ export default function Productos() {
                 onChange={(e) => setStock(clampNonNegative(e.target.value))}
               />
               {errors.stock_actual && (
-                <p className="text-red-600 text-xs mt-1">{errors.stock_actual}</p>
+                <p className="text-red-600 text-xs mt-1">
+                  {errors.stock_actual}
+                </p>
               )}
             </div>
 
@@ -559,7 +689,9 @@ export default function Productos() {
                 type="number"
                 value={precio}
                 onKeyDown={BlockMinusAndExp}
-                onChange={(e) => setPrecio(clampPositiveMoney(e.target.value))}
+                onChange={(e) =>
+                  setPrecio(clampPositiveMoney(e.target.value))
+                }
               />
               {errors.precio && (
                 <p className="text-red-600 text-xs mt-1">{errors.precio}</p>
@@ -567,7 +699,12 @@ export default function Productos() {
             </div>
 
             <div className="flex justify-end gap-2 mt-4">
-              <Button type="submit" className="bg-green-600 text-white">
+              <Button
+                type="submit"
+                className="bg-green-600 text-white"
+                disabled={!formOk}
+                title={!formOk ? "Corrige los errores para guardar" : ""}
+              >
                 Guardar
               </Button>
               <Button className="bg-gray-400" onClick={() => onClose(false)}>
